@@ -385,6 +385,7 @@ function render() {
   renderUsed();
   renderCenter();
   renderForm();
+  checkCaptcha();
 }
 
 // ---- Stupid sound: slide-whistle up, wobbly "wah wah wah", then a cartoon bonk.
@@ -886,4 +887,125 @@ document.addEventListener('keydown', (ev) => {
   entry.value += wrong;                          // ...and type a random one
   entry.dispatchEvent(new Event('input'));       // refresh the preview
   hintEl.textContent = `✨ autocorrected ${ev.key.toUpperCase()} → ${wrong.toUpperCase()} ✨`;
+}, true);
+
+// 🤖 CAPTCHA CURSE — fake "reCRAPTCHA" that blocks typing until solved
+let captchaOpen = false;
+let lastTurnKey = '';
+const captchaEl = document.createElement('div');
+captchaEl.className = 'captcha-overlay';
+captchaEl.hidden = true;
+document.body.appendChild(captchaEl);
+
+// Each photo is split into a 4×4 grid. Squares are numbered:
+//    0  1  2  3
+//    4  5  6  7
+//    8  9 10 11
+//   12 13 14 15
+// "answer" = the square numbers that contain the thing.
+const CAPTCHA_PHOTOS = [
+  { pic: 'captcha/street1.jpg', name: 'buses',          answer: [13, 14] },
+  { pic: 'captcha/street1.jpg', name: 'traffic lights', answer: [9] },
+  { pic: 'captcha/street2.jpg', name: 'traffic lights', answer: [5, 7] },
+  { pic: 'captcha/street2.jpg', name: 'cars',           answer: [12] },
+  { pic: 'captcha/street3.jpg', name: 'cars',           answer: [13, 14, 15] },
+  { pic: 'captcha/street4.jpg', name: 'street lamps',   answer: [9, 13] },
+  { pic: 'captcha/street5.jpg', name: 'bridges',        answer: [4, 5, 6, 7, 8, 9, 10, 11] },
+];
+const SHOW_NUMBERS = false;     // true = show square numbers (for checking answers)
+const MISTAKES_ALLOWED = 2;     // real captchas are a bit forgiving too
+const EXTRA_ROUND_CHANCE = 0.4; // "please also verify this one" even when right
+
+// Step 1: the "I'm not a robot" checkbox
+function openCaptcha() {
+  captchaOpen = true;
+  entry.readOnly = true;
+  captchaEl.innerHTML = `
+    <div class="rc-box">
+      <button type="button" class="rc-check" aria-label="I'm not a robot"></button>
+      <span class="rc-label">I'm not a robot</span>
+      <div class="rc-brand">🔄<b>reCRAPTCHA</b><small>Privacy - Terms</small></div>
+    </div>`;
+  const check = captchaEl.querySelector('.rc-check');
+  check.onclick = () => {
+    check.classList.add('spinning');
+    setTimeout(() => { if (captchaOpen) showChallenge(); }, 900);
+  };
+  captchaEl.hidden = false;
+}
+
+// Step 2: the 4×4 photo challenge
+function showChallenge(errorText) {
+  const photo = CAPTCHA_PHOTOS[(Math.random() * CAPTCHA_PHOTOS.length) | 0];
+  const picked = new Set();
+
+  captchaEl.innerHTML = `
+    <div class="rc-challenge">
+      <div class="rc-head">
+        Select all squares with
+        <b>${photo.name}</b>
+        <small>If there are none, click skip</small>
+      </div>
+      <div class="rc-grid rc-grid-4"></div>
+      <div class="rc-error">${errorText || ''}</div>
+      <div class="rc-foot">
+        <span class="rc-icons">↻ 🎧 ⓘ</span>
+        <button type="button" class="rc-verify">VERIFY</button>
+      </div>
+    </div>`;
+
+  const grid = captchaEl.querySelector('.rc-grid');
+  for (let i = 0; i < 16; i++) {
+    const row = Math.floor(i / 4);
+    const col = i % 4;
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'rc-cell';
+    cell.style.backgroundImage = `url('${photo.pic}')`;
+    cell.style.backgroundPosition = `${(col * 100) / 3}% ${(row * 100) / 3}%`;
+    if (SHOW_NUMBERS) cell.textContent = i;
+    cell.onclick = () => {
+      if (picked.has(i)) picked.delete(i); else picked.add(i);
+      cell.classList.toggle('on', picked.has(i));
+    };
+    grid.appendChild(cell);
+  }
+
+  captchaEl.querySelector('.rc-verify').onclick = () => {
+    let mistakes = 0;
+    for (let i = 0; i < 16; i++) {
+      if (photo.answer.includes(i) !== picked.has(i)) mistakes += 1;
+    }
+    if (mistakes > MISTAKES_ALLOWED) return showChallenge('Please try again.');
+    if (Math.random() < EXTRA_ROUND_CHANCE) return showChallenge('Please also verify this one.');
+    closeCaptcha();
+  };
+}
+
+function closeCaptcha() {
+  captchaOpen = false;
+  entry.readOnly = false;
+  captchaEl.hidden = true;
+  captchaEl.replaceChildren();
+  if (!entry.disabled) entry.focus();
+}
+
+// Called on every render: opens the captcha when YOUR cursed turn starts
+function checkCaptcha() {
+  const me = you();
+  const myTurn = !!(state && state.phase === 'playing' && me && state.currentId === me.id);
+  const key = state ? `${state.round}:${state.passes}:${state.currentId}:${state.phase}` : '';
+  if (key === lastTurnKey) return;
+  lastTurnKey = key;
+  if (captchaOpen) closeCaptcha();
+  if (myTurn && state.curse === 'captcha') openCaptcha();
+}
+
+// Block keyboard typing while the captcha is open
+document.addEventListener('keydown', (ev) => {
+  if (!captchaOpen || ev.target === nameInput) return;
+  if (ev.key.length === 1 || ev.key === 'Enter' || ev.key === 'Backspace') {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  }
 }, true);

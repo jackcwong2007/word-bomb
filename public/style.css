@@ -616,3 +616,77 @@ body.my-turn[data-curse="mirror"] .arena,
 body.my-turn[data-curse="mirror"] footer {
   scale: -1 1;
 }
+
+/* ===== 🤖 CAPTCHA CURSE ===== */
+.captcha-overlay {
+  position: fixed; inset: 0; z-index: 20;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  font-family: Roboto, Arial, sans-serif;
+}
+.captcha-overlay[hidden] { display: none; }
+
+/* Step 1: the checkbox card */
+.rc-box {
+  display: flex; align-items: center; gap: 12px;
+  width: 304px; height: 78px; padding: 0 12px;
+  background: #f9f9f9; color: #222;
+  border: 1px solid #d3d3d3; border-radius: 3px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.08);
+}
+.rc-check {
+  width: 28px; height: 28px; flex-shrink: 0;
+  background: #fff; border: 2px solid #c1c1c1; border-radius: 2px; cursor: pointer;
+}
+.rc-check.spinning {
+  border: 4px solid #4a90e2; border-top-color: transparent;
+  border-radius: 50%; animation: rc-spin 0.8s linear infinite;
+}
+@keyframes rc-spin { to { rotate: 360deg; } }
+.rc-label { flex: 1; font-size: 14px; }
+.rc-brand {
+  display: flex; flex-direction: column; align-items: center;
+  font-size: 22px; line-height: 1.1; color: #555;
+}
+.rc-brand b { font-size: 9px; font-weight: 400; }
+.rc-brand small { font-size: 7px; }
+
+/* Step 2: the photo challenge */
+.rc-challenge {
+  width: min(94vw, 360px);
+  background: #fff; color: #222;
+  border: 1px solid #ccc; box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
+  padding: 8px;
+}
+.rc-head { background: #1a73e8; color: #fff; padding: 18px 16px; font-size: 15px; }
+.rc-head b { display: block; font-size: 26px; margin: 2px 0; }
+.rc-head small { font-size: 12px; opacity: 0.9; }
+.rc-grid { display: grid; gap: 2px; margin-top: 8px; }
+.rc-grid-4 { grid-template-columns: repeat(4, 1fr); }
+.rc-cell {
+  position: relative;
+  aspect-ratio: 1;
+  background-color: #e8e8e8;
+  background-size: 400% 400%;
+  border: 0; padding: 0; cursor: pointer;
+  font-size: 14px; font-weight: 800; color: #fff; text-shadow: 0 0 3px #000;
+  transition: transform 0.12s;
+}
+.rc-cell.on { transform: scale(0.82); }
+.rc-cell.on::after {
+  content: '✓';
+  position: absolute; top: -4px; left: -4px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #1a73e8; color: #fff; text-shadow: none;
+  font-size: 13px; line-height: 22px; text-align: center;
+}
+.rc-error { min-height: 18px; margin: 6px 2px 0; color: #d93025; font-size: 13px; }
+.rc-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  border-top: 1px solid #ddd; margin-top: 6px; padding-top: 8px;
+}
+.rc-icons { color: #777; font-size: 18px; letter-spacing: 8px; }
+.rc-verify {
+  background: #1a73e8; color: #fff; border: 0; border-radius: 2px;
+  padding: 10px 22px; font-weight: 700; cursor: pointer;
+}
