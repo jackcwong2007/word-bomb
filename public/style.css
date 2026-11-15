@@ -499,3 +499,21 @@ body.shake .rug { animation: hit 0.4s linear; }
     animation: none !important;
   }
 }
+
+body[data-curse="spin"] .arena {
+  animation: curse-spin 6s linear infinite;
+}
+@keyframes curse-spin {
+  to { rotate: 360deg; }
+}
+
+.stage.cursed {
+  color: #fff;
+  background: #ff00aa;
+  padding: 4px 10px;
+  font-weight: 800;
+  animation: curse-blink 0.6s steps(2) infinite;
+}
+@keyframes curse-blink {
+  50% { background: #7cff4f; color: #1a0033; }
+}

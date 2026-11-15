@@ -97,6 +97,7 @@ function isStupid() {
 // Spin the curse wheel for the next player.
 // Early in the game you usually get no curse; later almost always.
 function pickCurse() {
+  if (process.env.FORCE_CURSE) return process.env.FORCE_CURSE;
   const noneChance = game.stage === 'skull' ? 0.1 : game.stage === 'red' ? 0.25 : 0.5;
   if (Math.random() < noneChance) return 'none';
   return CURSES[(Math.random() * CURSES.length) | 0];
@@ -457,7 +458,7 @@ function startPlaying() {
   game.phase = 'playing';
   game.countdown = 0;
   game.currentId = (living.find((p) => p.connected) || living[0]).id;
-  game.curse = 'none'; // first turn is always normal
+  game.curse = process.env.FORCE_CURSE || 'none'; // first turn is normal unless forced
   game.prompt = pickPrompt();
   armTurn();
   broadcast();
