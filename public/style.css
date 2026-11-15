@@ -17,7 +17,7 @@ html, body {
 }
 
 body {
-  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  font-family: "Comic Sans MS", "Comic Sans", cursive, sans-serif;
   color: var(--ink);
   background:
     radial-gradient(ellipse at 50% 30%, #3a241c 0%, transparent 46%),
@@ -44,7 +44,7 @@ header {
 
 .brand h1 {
   margin: 0;
-  font-family: "Arial Black", Impact, sans-serif;
+  font-family: "Comic Sans MS", "Comic Sans", cursive, sans-serif;
   font-size: clamp(18px, 3.2vmin, 30px);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -225,7 +225,7 @@ main {
   place-items: center;
   background: linear-gradient(#fff8e8, #f0d7a2);
   color: #2a160f;
-  font-family: "Arial Black", Impact, sans-serif;
+  font-family: "Comic Sans MS", "Comic Sans", cursive, sans-serif;
   font-size: 5.5cqmin;
   border-radius: 1.3cqmin;
   box-shadow: 0 0.8cqmin 0 #a9783e, 0 1.6cqmin 2.6cqmin rgba(0, 0, 0, 0.35);
@@ -432,7 +432,7 @@ footer {
 
 .card h2 {
   margin: 0 0 8px;
-  font-family: "Arial Black", Impact, sans-serif;
+  font-family: "Comic Sans MS", "Comic Sans", cursive, sans-serif;
   font-size: clamp(18px, 2.6vmin, 24px);
   letter-spacing: 0.04em;
 }
