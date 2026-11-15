@@ -517,3 +517,7 @@ body[data-curse="spin"] .arena {
 @keyframes curse-blink {
   50% { background: #7cff4f; color: #1a0033; }
 }
+body.my-turn[data-curse="mirror"] .arena,
+body.my-turn[data-curse="mirror"] footer {
+  scale: -1 1;
+}
