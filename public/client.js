@@ -1,5 +1,6 @@
 'use strict';
 
+
 const joinOverlay = document.getElementById('join');
 const joinForm = document.getElementById('join-form');
 const joinNote = document.getElementById('join-note');
@@ -28,6 +29,14 @@ const STAGE_LABEL = {
   black: 'Black bomb',
   red: 'Red bomb',
   skull: 'Skull bomb',
+};
+const CURSE_LABEL = {
+  spin: '🌀 SCREEN SPIN',
+  autocorrect: '✨ AUTOCORRECT',
+  captcha: '🤖 CAPTCHA',
+  shuffle: '🔀 KEYBOARD SHUFFLE',
+  mirror: '🪞 MIRROR MODE',
+  stupid: '🧠 STUPID WORDS ONLY',
 };
 
 let socket = null;
@@ -311,7 +320,15 @@ function renderCenter() {
   }
 
   setTiles((state.prompt || '').toUpperCase().split(''), false);
-  stageEl.textContent = STAGE_LABEL[state.stage] || '';
+  const curse = CURSE_LABEL[state.curse];
+  if (curse && turn) {
+    const who = yourTurn ? 'YOU got' : `${turn.name} got`;
+    stageEl.textContent = `${who} ${curse}`;
+    stageEl.classList.add('cursed');
+  } else {
+    stageEl.textContent = STAGE_LABEL[state.stage] || '';
+    stageEl.classList.remove('cursed');
+  }  
   if (self && self.spectating) subEl.textContent = 'You join when the next round starts.';
   else if (yourTurn) subEl.textContent = 'Type a word with those letters.';
   else if (turn) subEl.textContent = `${turn.name} is holding the bomb.`;
@@ -360,6 +377,9 @@ function paintPreview() {
 
 function render() {
   if (!state) return;
+  document.body.dataset.curse = state.phase === 'playing' ? (state.curse || 'none') : 'none';
+  const me = you();
+  document.body.classList.toggle('my-turn', !!(me && state.phase === 'playing' && state.currentId === me.id));
   renderSeats();
   renderLog();
   renderUsed();
