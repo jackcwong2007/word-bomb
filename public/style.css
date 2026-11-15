@@ -710,6 +710,15 @@ body.shake .rug { animation: hit 0.4s linear; }
   }
 }
 
+.room-banner { font-weight: 900; letter-spacing: .12em; margin-top: .5rem; }
+.brainrot-timer { margin: .3rem; font-size: 1.8rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+.display-help { max-width: 28rem; font-size: .9rem; }
+.meme-popup { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); z-index: 100; width: max-content; max-width: 90vw; padding: 1rem 1.5rem; border: 4px solid #111; border-radius: 16px; background: #d7ff3f; color: #111; font-size: clamp(1.2rem, 4vw, 2.5rem); font-weight: 900; text-align: center; box-shadow: 8px 8px 0 #111; pointer-events: none; }
+.meme-popup[hidden] { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .meme-popup { animation: brainrot-pop 180ms ease-out; }
+  @keyframes brainrot-pop { from { transform: translateX(-50%) scale(.6) rotate(-6deg); } to { transform: translateX(-50%) scale(1) rotate(0); } }
+}
 body[data-curse="spin"] .arena {
   animation: curse-spin 6s linear infinite;
 }
@@ -805,15 +814,3 @@ body.my-turn[data-curse="mirror"] footer {
   background: #1a73e8; color: #fff; border: 0; border-radius: 2px;
   padding: 10px 22px; font-weight: 700; cursor: pointer;
 }
-/* ===== TUNG TUNG SAHUR on stupid turns ===== */
-body[data-curse="stupid"] .bomb svg { display: none; }
-body[data-curse="stupid"] .bomb {
-  background: center / auto 88% no-repeat;
-  image-rendering: pixelated;
-}
-body[data-curse="stupid"] .ring { inset: -10%; }
-body[data-curse="stupid"] .bomb          { background-image: url('assets/sahur-1.png'); }
-body[data-curse="stupid"] .bomb.fuse-mid { background-image: url('assets/sahur-2.png'); }
-body[data-curse="stupid"] .bomb.fuse-low { background-image: url('assets/sahur-3.png'); }
-
-.popups { z-index: 21; }
