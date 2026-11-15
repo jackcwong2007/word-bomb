@@ -1,5 +1,9 @@
 'use strict';
 
+const displayOnly = new URLSearchParams(location.search).get('display') === '1';
+const roomInput = document.getElementById('room');
+roomInput.value = new URLSearchParams(location.search).get('room') || localStorage.getItem('wb-room') || '';
+
 const joinOverlay = document.getElementById('join');
 const joinForm = document.getElementById('join-form');
 const joinNote = document.getElementById('join-note');
@@ -392,6 +396,7 @@ function onState(next) {
     hintEl.textContent = '';
   }
   render();
+  window.dispatchEvent(new CustomEvent('brainrot-state', { detail: next }));
 }
 
 function connect() {
@@ -402,9 +407,15 @@ function connect() {
   socket = mine;
   joinNote.textContent = 'Connecting…';
   mine.addEventListener('open', () => {
+    if (displayOnly) {
+      joinOverlay.classList.add('hidden');
+      send({ t: 'watch' });
+      return;
+    }
     joinNote.textContent = '';
     send({
       t: 'join',
+      room: roomInput.value.trim().toUpperCase(),
       name: localStorage.getItem('wb-name') || nameInput.value,
       token: localStorage.getItem('wb-token') || '',
     });
@@ -456,11 +467,12 @@ joinForm.addEventListener('submit', (ev) => {
   const name = nameInput.value.trim().slice(0, 16);
   if (!name) return;
   ctx();
+  localStorage.setItem('wb-room', roomInput.value.trim().toUpperCase());
   localStorage.setItem('wb-name', name);
   replaced = false;
   wantConnect = true;
   if (socket && socket.readyState === 1) {
-    send({ t: 'join', name, token: localStorage.getItem('wb-token') || '' });
+    send({ t: 'join', name, room: roomInput.value.trim().toUpperCase(), token: localStorage.getItem('wb-token') || '' });
     return;
   }
   connect();
@@ -555,7 +567,7 @@ function frame() {
 
 requestAnimationFrame(frame);
 
-if (localStorage.getItem('wb-name')) {
+if (displayOnly || (localStorage.getItem('wb-name') && roomInput.value.trim())) {
   wantConnect = true;
   connect();
 } else {

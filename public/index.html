@@ -53,6 +53,7 @@
     </section>
 
     <aside>
+      <section><h2>Aura leaderboard</h2><ol id="leaderboard"></ol></section>
       <section>
         <h2>This round</h2>
         <ol id="log"></ol>
@@ -79,6 +80,10 @@
       <h2>Take a seat</h2>
       <p>When the labubu points at you, type a real word that contains the letters shown. You get two lives. Last person sitting wins.</p>
       <label>
+        Room code
+        <input id="room" maxlength="16" autocomplete="off" autocapitalize="characters" placeholder="Code on the laptop" required />
+      </label>
+      <label>
         Your name
         <input id="name" name="wordbomb-name" maxlength="16" placeholder="Alex" required />
       </label>
@@ -87,6 +92,7 @@
     </form>
   </div>
 
+  <script src="brainrot.js"></script>
   <script src="client.js"></script>
 </body>
 </html>
