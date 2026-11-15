@@ -1,0 +1,12 @@
+{
+  "name": "word-bomb",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local multiplayer Word Bomb. One machine hosts, others on the same network join in a browser.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

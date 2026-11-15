@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Word Bomb</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='38' r='20' fill='%23221c18'/%3E%3Cpath d='M40 22c6-10 16-8 16-16' stroke='%23e7c48a' stroke-width='4' fill='none'/%3E%3Ccircle cx='56' cy='6' r='4' fill='%23ffd36b'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Word Bomb</h1>
+      <p>Pass the bomb with a real word</p>
+    </div>
+    <div class="header-side">
+      <div id="net" class="net"></div>
+      <div class="header-actions">
+        <button id="sound" type="button" aria-pressed="true">Sound on</button>
+        <button id="rename" type="button">Change name</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="arena" aria-live="polite">
+      <div class="rug" id="rug">
+        <div class="arrow" id="arrow" hidden></div>
+        <div id="seats"></div>
+        <div class="core">
+          <p class="ribbon" id="ribbon" hidden>Your turn</p>
+          <div class="bomb black" id="bomb">
+            <div class="ring" id="ring"></div>
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <path class="wick" d="M60 30 C70 16 82 18 84 6" fill="none" stroke="#e7c48a" stroke-width="3" stroke-linecap="round" />
+              <circle class="spark" cx="84" cy="6" r="3.4" />
+              <circle class="shell" cx="46" cy="58" r="30" />
+              <ellipse cx="34" cy="46" rx="8" ry="5" fill="rgba(255,255,255,.16)" />
+              <g class="face" fill="#1a120e">
+                <circle cx="36" cy="54" r="3.1" />
+                <circle cx="56" cy="54" r="3.1" />
+                <path d="M38 67 Q46 73 54 67" fill="none" stroke="#1a120e" stroke-width="2.2" stroke-linecap="round" />
+              </g>
+              <text class="skullmark" x="46" y="68" text-anchor="middle">☠</text>
+            </svg>
+          </div>
+          <div class="tiles" id="tiles"></div>
+          <p class="stage" id="stage"></p>
+          <p class="sub" id="sub"></p>
+          <button id="start" class="start" type="button" hidden>Start round</button>
+        </div>
+      </div>
+    </section>
+
+    <aside>
+      <section>
+        <h2>This round</h2>
+        <ol id="log"></ol>
+      </section>
+      <section>
+        <h2>Used words <span id="used-count"></span></h2>
+        <ul id="used"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <form id="form" autocomplete="off">
+      <div class="entry-wrap">
+        <input id="entry" name="wordbomb-word" maxlength="24" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type a word" aria-label="Word" />
+        <div id="preview" class="preview"></div>
+      </div>
+    </form>
+    <p id="hint"></p>
+  </footer>
+
+  <div class="overlay" id="join">
+    <form id="join-form" class="card" autocomplete="off">
+      <h2>Take a seat</h2>
+      <p>When the bomb points at you, type a real word that contains the letters shown. You get two lives. Last person sitting wins.</p>
+      <label>
+        Your name
+        <input id="name" name="wordbomb-name" maxlength="16" placeholder="Alex" required />
+      </label>
+      <button type="submit">Join the table</button>
+      <p class="fine" id="join-note"></p>
+    </form>
+  </div>
+
+  <script src="client.js"></script>
+</body>
+</html>
