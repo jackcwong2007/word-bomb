@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const { WebSocketServer } = require('ws');
@@ -138,6 +139,7 @@ const game = {
   startedCount: 0,
   timer: null,
   curse: 'none',
+  picked: false, // has the winner picked someone for the camera this round?
 };
 
 let seq = 1;
@@ -240,8 +242,64 @@ function pickFrom(len, minLeft, hard) {
   return cut[(Math.random() * cut.length) | 0].sub;
 }
 
+// Hand-picked prompts. Common ones show up in lots of everyday words;
+// less common ones are still very doable but take a second of thought.
+const COMMON_PROMPTS = [
+  'an', 'ar', 'at', 'en', 'er', 'es', 'ed', 'in', 'on', 'or',
+  're', 'st', 'te', 'th', 'ti', 'al', 'le', 'ra', 'ri', 'ro',
+  'ic', 'it', 'is', 'ou', 'ng', 'nt', 'ea', 'll', 'ss', 'ch',
+  'sh', 'un', 'ly', 'de', 'co', 'ma', 'ca', 'se', 'ce', 'ne',
+  'li', 'la', 'lo', 'me', 'mi', 'pe', 'pa', 'po', 'ta', 'to',
+  've', 'ur', 'ol', 'il', 'el', 'ac', 'ad', 'am', 'ab', 'ow',
+  'ing', 'ent', 'ion', 'ter', 'est', 'ate', 'tio', 'and', 'ers', 'con',
+  'pro', 'per', 'ver', 'all', 'res', 'ant', 'ine', 'ted', 'ous', 'men',
+  'pre', 'com', 'ess', 'ati', 'tra', 'str', 'sta', 'int', 'ist', 'ive',
+  'ble', 'age', 'ear', 'ore', 'und', 'out', 'one', 'art', 'ace', 'ish',
+];
+const RARE_PROMPTS = [
+  'ck', 'gh', 'ph', 'wh', 'ght', 'oo', 'ee', 'ai', 'oa', 'ui',
+  'ie', 'ue', 'ay', 'ey', 'oy', 'ex', 'ix', 'ox', 'ze', 'zi',
+  'qu', 'ju', 'ka', 'ki', 'wa', 'wi', 'ug', 'ub', 'ump', 'ank',
+  'unk', 'ink', 'ong', 'ick', 'ack', 'ock', 'uck', 'oom', 'ool', 'eep',
+  'eat', 'oon', 'ift', 'rch', 'tch', 'dge', 'nch', 'fl', 'gr', 'sp',
+];
+const MIN_WORDS_PER_PROMPT = 40;
+
+function vetPrompts(list, label) {
+  const keep = list.filter((sub) => (BY_SUB.get(sub) || []).length >= MIN_WORDS_PER_PROMPT);
+  const dropped = list.filter((sub) => !keep.includes(sub));
+  if (dropped.length) console.log(`Dropped ${label} prompts (too few words): ${dropped.join(', ')}`);
+  return keep;
+}
+
+const COMMON = vetPrompts(COMMON_PROMPTS, 'common');
+const RARE = vetPrompts(RARE_PROMPTS, 'rare');
+console.log(`Prompts: ${COMMON.length} common · ${RARE.length} less common`);
+
+// Chance of a less common prompt, by bomb stage.
+function rareChance(stage) {
+  if (stage === 'skull') return 0.55;
+  if (stage === 'red') return 0.25;
+  return 0;
+}
+
+function pickFromList(list) {
+  const pool = list.filter((sub) => sub !== game.prompt && unusedCount(sub) >= 3);
+  return pool.length ? pool[(Math.random() * pool.length) | 0] : null;
+}
+
 function pickPrompt() {
   if (isStupid()) return pickStupidPrompt();
+  const rare = Math.random() < rareChance(game.stage);
+  const first = rare ? RARE : COMMON;
+  const second = rare ? COMMON : RARE;
+  const curated = pickFromList(first) || pickFromList(second);
+  if (curated) return curated;
+  return pickRandomSlice();
+}
+
+// Fallback: any slice from the dictionary (only if the curated lists run dry).
+function pickRandomSlice() {
   const order = [rollLength(game.stage)];
   for (const len of [2, 3]) if (!order.includes(len)) order.push(len);
   const hard = game.stage === 'skull';
@@ -308,6 +366,7 @@ function snapshot() {
     maxLives: MAX_LIVES,
     curse: game.curse,
     stupid: isStupid(),
+    picked: game.picked,
     log: game.log.slice(-16),
   };
 }
@@ -354,6 +413,7 @@ function endRound(winner) {
   game.curse = 'none';
   game.countdown = 0;
   game.winnerId = winner ? winner.id : null;
+  game.picked = false;
   if (winner && game.startedCount > 1) pushLog(`${winner.name} wins the round`, 'win');
   else if (winner) pushLog(`Practice over · ${game.passes} words`, 'win');
   else pushLog(`The bomb wins · ${game.passes} words defused`, 'boom');
@@ -369,6 +429,7 @@ function advanceFrom(player, success) {
   game.curse = pickCurse(); // 1. spin the wheel
   game.prompt = pickPrompt(); // 2. then letters that fit the curse
   armTurn();
+  applyCurse(next);
   return true;
 }
 
@@ -477,6 +538,8 @@ function startPlaying() {
   game.curse = process.env.FORCE_CURSE || 'none'; // first turn is normal unless forced
   game.prompt = pickPrompt();
   armTurn();
+  resetPopups();
+  applyCurse(playerById(game.currentId));
   broadcast();
 }
 
@@ -499,6 +562,7 @@ function dropPlayer(player, reason) {
       game.curse = pickCurse();
       game.prompt = pickPrompt();
       armTurn();
+      applyCurse(next);
     }
   }
   if (phase === 'countdown' && !game.players.some((p) => p.alive)) {
@@ -521,6 +585,7 @@ function sendHello(ws, player) {
     token: player.token,
     ips: lanAddresses(),
     port: PORT,
+    url: publicUrl,
   });
 }
 
@@ -622,6 +687,158 @@ function handleWord(ws, msg) {
   acceptWord(player, word);
 }
 
+// ---- Random popups. The server decides when each player gets one, so every
+// alive player gets their own on their own random schedule, and it enforces
+// each window's timer (running out costs a life).
+const POPUP_MAX = 3;
+const POPUP_GAP = (process.env.POPUP_GAP || '8000-20000').split('-').map(Number);
+const CAP_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const POPUP_GRACE = 400; // ms of slack for network lag
+let popupSeq = 0;
+
+function rint(lo, hi) {
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+function randCode(n) {
+  let s = '';
+  for (let i = 0; i < n; i++) s += CAP_CHARS[rint(0, CAP_CHARS.length - 1)];
+  return s;
+}
+
+function makeChallenge(kind) {
+  const k = kind || ['code', 'math', 'captcha'][rint(0, 2)];
+  if (k === 'code') {
+    const code = randCode(6);
+    return { kind: k, title: 'Security check', q: 'Enter this code:', code, answer: code, dur: 8000 };
+  }
+  if (k === 'math') {
+    const op = ['+', '-', '×'][rint(0, 2)];
+    let a; let b; let ans;
+    if (op === '+') { a = rint(5, 60); b = rint(5, 60); ans = a + b; }
+    else if (op === '-') { a = rint(20, 90); b = rint(1, a); ans = a - b; }
+    else { a = rint(2, 12); b = rint(2, 12); ans = a * b; }
+    return { kind: k, title: 'Quick maths', q: 'Solve to continue:', code: `${a} ${op} ${b}`, answer: String(ans), dur: 8000 };
+  }
+  const text = randCode(5);
+  return { kind: 'captcha', title: 'Are you human?', q: 'Type the captcha:', captcha: text, answer: text, dur: 10000 };
+}
+
+function nextPopupDelay() {
+  return rint(POPUP_GAP[0], POPUP_GAP[1] || POPUP_GAP[0]);
+}
+
+function resetPopups() {
+  const now = Date.now();
+  for (const player of game.players) {
+    player.popups = new Map();
+    player.nextPopupAt = now + nextPopupDelay();
+  }
+}
+
+function openPopupFor(player, kind, forced) {
+  if (!player.popups) player.popups = new Map();
+  if (!forced && player.popups.size >= POPUP_MAX) return;
+  const c = makeChallenge(kind);
+  popupSeq += 1;
+  const id = `pop${popupSeq}`;
+  player.popups.set(id, { answer: c.answer, deadline: Date.now() + c.dur + POPUP_GRACE });
+  send(player.ws, {
+    t: 'popup',
+    id,
+    kind: c.kind,
+    title: forced ? '🤖 CAPTCHA curse' : c.title,
+    q: c.q,
+    code: c.code || '',
+    captcha: c.captcha || '',
+    dur: c.dur,
+    forced: !!forced,
+  });
+}
+
+// Curse effects that need the server (the CAPTCHA curse pops a captcha window).
+function applyCurse(player) {
+  if (game.curse === 'captcha' && player) openPopupFor(player, 'captcha', true);
+}
+
+function handlePopAnswer(ws, msg) {
+  if (game.phase !== 'playing') return;
+  const player = playerById(ws.playerId);
+  if (!player || !player.alive || !player.popups) return;
+  const id = String(msg.id || '');
+  const pop = player.popups.get(id);
+  if (!pop) return;
+  const guess = String(msg.answer || '').toUpperCase().replace(/\s+/g, '').slice(0, 12);
+  if (guess && guess === pop.answer) {
+    player.popups.delete(id);
+    send(ws, { t: 'popclose', id, ok: true });
+  } else {
+    send(ws, { t: 'popwrong', id });
+  }
+}
+
+setInterval(() => {
+  if (game.phase !== 'playing') return;
+  const now = Date.now();
+  for (const player of [...game.players]) {
+    if (!player.popups) player.popups = new Map();
+    if (!player.alive) {
+      player.popups.clear();
+      continue;
+    }
+    for (const [id, pop] of player.popups) {
+      if (now < pop.deadline) continue;
+      player.popups.delete(id);
+      if (!player.connected) continue; // no penalty while disconnected
+      send(player.ws, { t: 'popclose', id, ok: false });
+      popupFail(player);
+      if (game.phase !== 'playing') return;
+      if (!player.alive) break;
+    }
+    if (!player.alive || !player.connected) continue;
+    if (!player.nextPopupAt) player.nextPopupAt = now + nextPopupDelay();
+    if (now >= player.nextPopupAt) {
+      openPopupFor(player);
+      player.nextPopupAt = now + nextPopupDelay();
+    }
+  }
+}, 200);
+
+// A player ran out of time on one of their popups: costs a life.
+function popupFail(player) {
+  if (game.phase !== 'playing' || !player.alive) return;
+  const now = Date.now();
+  const wasCurrent = game.currentId === player.id;
+  player.lives -= 1;
+  game.boom = { id: player.id, at: now };
+  pushLog(`${player.name} fumbled the popup`, 'boom');
+  if (player.lives <= 0) {
+    player.alive = false;
+    player.lives = 0;
+    pushLog(`${player.name} exploded`, 'out');
+    const alive = game.players.filter((p) => p.alive);
+    if (alive.length === 0) return endRound(null);
+    if (game.startedCount > 1 && alive.length === 1) return endRound(alive[0]);
+    if (wasCurrent) advanceFrom(player, false);
+  }
+  broadcast();
+}
+
+// The winner picks one loser; that player's own camera turns on
+// (on their own screen) for the "open your mouth" meme.
+function handlePick(ws, msg) {
+  const player = playerById(ws.playerId);
+  if (!player || game.phase !== 'ended' || game.winnerId !== player.id) return;
+  if (game.picked) return nope(ws, 'You already picked someone this round.');
+  const target = playerById(String(msg.id || ''));
+  if (!target || target === player || !target.connected) return nope(ws, "They're not here anymore.");
+  if (target.spectating) return nope(ws, "They didn't play this round.");
+  game.picked = true;
+  pushLog(`${player.name} picked ${target.name} for the camera 📸`, 'win');
+  send(target.ws, { t: 'picked', by: player.name });
+  broadcast();
+}
+
 function handleLeave(ws) {
   const player = playerById(ws.playerId);
   if (!player) return;
@@ -639,7 +856,89 @@ const TYPES = {
   '.ico': 'image/x-icon',
 };
 
-const server = http.createServer((req, res) => {
+// HTTPS so browsers on other devices are allowed to use the camera.
+// A self-signed certificate is made on first run (and remade if this
+// computer's network address changes). Set HTTPS=0 to use plain http.
+// `npm run tunnel` (or --tunnel): a free Cloudflare quick tunnel gives the game a
+// real, trusted https://….trycloudflare.com link, so no browser warning anywhere.
+// Locally the game then runs on plain http (localhost is already camera-safe).
+const TUNNEL = process.env.TUNNEL === '1' || process.argv.includes('--tunnel');
+const USE_HTTPS = process.env.HTTPS !== '0' && !TUNNEL;
+let publicUrl = '';
+
+function findCloudflared() {
+  const spots = [
+    process.env.CLOUDFLARED,
+    'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe',
+    'C:\\Program Files\\cloudflared\\cloudflared.exe',
+  ].filter(Boolean);
+  return spots.find((p) => fs.existsSync(p)) || 'cloudflared';
+}
+
+function startTunnel() {
+  const { spawn } = require('child_process');
+  console.log('  Starting Cloudflare tunnel…');
+  const child = spawn(findCloudflared(), ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], {
+    windowsHide: true,
+  });
+  const onData = (buf) => {
+    const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (!m || publicUrl) return;
+    publicUrl = m[0];
+    console.log('');
+    console.log(`  Invite link (works anywhere, no warning):  ${publicUrl}`);
+    console.log('');
+    for (const player of game.players) send(player.ws, { t: 'url', url: publicUrl });
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('error', (err) => {
+    console.error(`  Could not start cloudflared (${err.message}). Install it with: winget install Cloudflare.cloudflared`);
+  });
+  child.on('exit', (code) => {
+    if (publicUrl) console.log(`  Cloudflare tunnel closed (code ${code}). The invite link no longer works.`);
+    publicUrl = '';
+  });
+  const stop = () => {
+    try { child.kill(); } catch { /* already gone */ }
+  };
+  process.on('exit', stop);
+  process.on('SIGINT', () => { stop(); process.exit(0); });
+}
+const CERT_DIR = path.join(__dirname, 'certs');
+
+function loadOrMakeCert() {
+  const ips = lanAddresses();
+  const want = ['localhost', '127.0.0.1', ...ips].join(',');
+  const keyFile = path.join(CERT_DIR, 'key.pem');
+  const certFile = path.join(CERT_DIR, 'cert.pem');
+  const forFile = path.join(CERT_DIR, 'for.txt');
+  try {
+    if (fs.readFileSync(forFile, 'utf8') === want) {
+      return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
+    }
+  } catch { /* no cert yet */ }
+  const selfsigned = require('selfsigned');
+  const altNames = [
+    { type: 2, value: 'localhost' },
+    { type: 7, ip: '127.0.0.1' },
+    ...ips.map((ip) => ({ type: 7, ip })),
+  ];
+  const pems = selfsigned.generate([{ name: 'commonName', value: 'Word Bomb (local)' }], {
+    days: 825,
+    keySize: 2048,
+    algorithm: 'sha256',
+    extensions: [{ name: 'subjectAltName', altNames }],
+  });
+  fs.mkdirSync(CERT_DIR, { recursive: true });
+  fs.writeFileSync(keyFile, pems.private);
+  fs.writeFileSync(certFile, pems.cert);
+  fs.writeFileSync(forFile, want);
+  console.log('Made a new self-signed certificate for', want);
+  return { key: pems.private, cert: pems.cert };
+}
+
+function handleRequest(req, res) {
   let pathname = '/index.html';
   try {
     pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -668,9 +967,15 @@ const server = http.createServer((req, res) => {
     });
     res.end(data);
   });
-});
+}
+
+const server = USE_HTTPS
+  ? https.createServer(loadOrMakeCert(), handleRequest)
+  : http.createServer(handleRequest);
+const SCHEME = USE_HTTPS ? 'https' : 'http';
 
 const wss = new WebSocketServer({ server });
+wss.on('error', () => {}); // listen errors are reported by server.on('error') below
 
 wss.on('connection', (ws) => {
   ws.on('error', () => {});
@@ -694,6 +999,8 @@ wss.on('connection', (ws) => {
     if (!ws.playerId) return;
     if (msg.t === 'start') return handleStart(ws);
     if (msg.t === 'word') return handleWord(ws, msg);
+    if (msg.t === 'popanswer') return handlePopAnswer(ws, msg);
+    if (msg.t === 'pick') return handlePick(ws, msg);
     if (msg.t === 'leave') return handleLeave(ws);
   });
   ws.on('close', () => {
@@ -741,6 +1048,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Laptop display: http://localhost:${PORT}/?display=1`);
   console.log(`  This computer:  http://localhost:${PORT}`);
   if (!ips.length) console.log('  No other network address found. Friends on Wi-Fi may not see this machine.');
-  for (const ip of ips) console.log(`  Other devices:  http://${ip}:${PORT}`);
+  for (const ip of ips) console.log(`  Other devices:  ${SCHEME}://${ip}:${PORT}`);
+  if (USE_HTTPS) {
+    console.log('');
+    console.log('  The certificate is self-signed, so browsers show a warning the first time.');
+    console.log('  Click "Advanced" -> "Proceed" (Chrome/Edge) or "Accept the risk" (Firefox).');
+    console.log('  Tip: run "npm run tunnel" instead for a link with no warning.');
+  }
   console.log('');
+  if (TUNNEL) startTunnel();
 });
