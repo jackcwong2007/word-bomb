@@ -1,6 +1,8 @@
 'use strict';
 
 
+const displayOnly = new URLSearchParams(location.search).get('display') === '1';
+
 const joinOverlay = document.getElementById('join');
 const joinForm = document.getElementById('join-form');
 const joinNote = document.getElementById('join-note');
@@ -1165,7 +1167,7 @@ function onState(next) {
     hintEl.textContent = '';
   }
   render();
-  chaosSync();
+  window.dispatchEvent(new CustomEvent('brainrot-state', { detail: next }));
 }
 
 function connect() {
@@ -1176,6 +1178,11 @@ function connect() {
   socket = mine;
   joinNote.textContent = 'Connecting…';
   mine.addEventListener('open', () => {
+    if (displayOnly) {
+      joinOverlay.classList.add('hidden');
+      send({ t: 'watch' });
+      return;
+    }
     joinNote.textContent = '';
     send({
       t: 'join',
@@ -1366,7 +1373,7 @@ function frame() {
 
 requestAnimationFrame(frame);
 
-if (localStorage.getItem('wb-name')) {
+if (displayOnly || localStorage.getItem('wb-name')) {
   wantConnect = true;
   connect();
 } else {

@@ -10,7 +10,9 @@ const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC = path.resolve(__dirname, 'public');
-const MAX_PLAYERS = 12;
+const MAX_PLAYERS = 5;
+const displays = new Set();
+const BRAINROT = new Set();
 const MAX_LIVES = 2;
 const COLORS = [
   '#ff5a6a', '#ffb703', '#52b788', '#4cc9f0', '#c77dff', '#f4a261',
@@ -23,7 +25,12 @@ const CANDIDATES = { 2: [], 3: [] };
 const CURSES = ['spin', 'autocorrect', 'captcha', 'shuffle', 'mirror', 'stupid'];
 
 function loadWords() {
-  const raw = fs.readFileSync(path.join(__dirname, 'data', 'words.txt'), 'utf8');
+  const slang = fs.readFileSync(path.join(__dirname, 'data', 'stupid.txt'), 'utf8');
+  for (const line of slang.split(/\r?\n/)) {
+    const word = line.trim().toLowerCase();
+    if (/^[a-z]{3,15}$/.test(word)) BRAINROT.add(word);
+  }
+  const raw = fs.readFileSync(path.join(__dirname, 'data', 'words.txt'), 'utf8') + '\n' + slang;
   for (const line of raw.split(/\r?\n/)) {
     const word = line.trim().toLowerCase();
     if (!/^[a-z]{3,15}$/.test(word) || !/[aeiouy]/.test(word) || WORDS.has(word)) continue;
@@ -337,6 +344,7 @@ function snapshot() {
       name: p.name,
       color: p.color,
       lives: p.lives,
+      aura: p.aura || 0,
       alive: p.alive,
       host: p.host,
       spectating: p.spectating,
@@ -372,6 +380,7 @@ function sendState(ws) {
 }
 
 function broadcast() {
+  for (const ws of displays) sendState(ws);
   for (const player of game.players) {
     if (player.connected && player.ws) sendState(player.ws);
   }
@@ -425,6 +434,7 @@ function advanceFrom(player, success) {
 function loseLife(player) {
   if (game.phase !== 'playing' || !player.alive) return;
   player.lives -= 1;
+  player.aura = (player.aura || 0) - 100;
   game.boom = { id: player.id, at: Date.now() };
   if (player.lives <= 0) {
     player.alive = false;
@@ -443,6 +453,9 @@ function loseLife(player) {
 }
 
 function acceptWord(player, word) {
+  const earned = BRAINROT.has(word) ? 67 : 10;
+  player.aura = (player.aura || 0) + earned;
+  pushLog(`${player.name} +${earned} aura`, 'aura');
   game.used.add(word);
   game.passes += 1;
   pushLog(`${player.name} · ${word}`, 'word', game.prompt);
@@ -472,6 +485,7 @@ function beginRound() {
   game.startedCount = 0;
   game.log = [];
   for (const player of game.players) {
+    player.aura = 0;
     if (!player.connected) {
       player.alive = false;
       player.spectating = true;
@@ -574,6 +588,16 @@ function sendHello(ws, player) {
 }
 
 function handleJoin(ws, msg) {
+  if (ws.display) return;
+  if (ws.playerId) {
+    const seated = playerById(ws.playerId);
+    if (seated && seated.ws === ws) {
+      seated.name = cleanName(msg.name);
+      sendHello(ws, seated);
+      broadcast();
+      return;
+    }
+  }
   const name = cleanName(msg.name);
   const token = typeof msg.token === 'string' ? msg.token.slice(0, 64) : '';
   const existing = token ? game.players.find((p) => p.token === token) : null;
@@ -600,8 +624,8 @@ function handleJoin(ws, msg) {
     return;
   }
 
-  if (game.players.filter((p) => p.connected).length >= MAX_PLAYERS) {
-    send(ws, { t: 'error', message: 'The table is full (12 players).' });
+  if (game.players.length >= MAX_PLAYERS) {
+    send(ws, { t: 'error', message: 'The table is full (5 players).' });
     return;
   }
 
@@ -619,6 +643,7 @@ function handleJoin(ws, msg) {
     disconnectedAt: 0,
     ws,
     lastWordAt: 0,
+    aura: 0,
   };
   game.players.push(player);
   ws.playerId = player.id;
@@ -641,6 +666,7 @@ function handleWord(ws, msg) {
   const player = playerById(ws.playerId);
   if (!player || player.id !== game.currentId || !player.alive) return;
   const now = Date.now();
+  if (now >= game.deadline) return loseLife(player);
   if (now - player.lastWordAt < 70) return;
   player.lastWordAt = now;
   const word = String(msg.word || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 20);
@@ -957,6 +983,13 @@ wss.on('connection', (ws) => {
       return;
     }
     if (!msg || typeof msg.t !== 'string') return;
+    if (msg.t === 'watch') {
+      if (ws.playerId) return;
+      ws.display = true;
+      displays.add(ws);
+      sendState(ws);
+      return;
+    }
     if (msg.t === 'join') return handleJoin(ws, msg);
     if (!ws.playerId) return;
     if (msg.t === 'start') return handleStart(ws);
@@ -966,6 +999,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'leave') return handleLeave(ws);
   });
   ws.on('close', () => {
+    displays.delete(ws);
     const player = playerById(ws.playerId);
     if (!player || player.ws !== ws) return;
     player.connected = false;
@@ -1005,7 +1039,8 @@ server.listen(PORT, '0.0.0.0', () => {
   const ips = lanAddresses();
   console.log('');
   console.log('Word Bomb is on the table.');
-  console.log(`  This computer:  ${SCHEME}://localhost:${PORT}`);
+  console.log(`  Laptop display: http://localhost:${PORT}/?display=1`);
+  console.log(`  This computer:  http://localhost:${PORT}`);
   if (!ips.length) console.log('  No other network address found. Friends on Wi-Fi may not see this machine.');
   for (const ip of ips) console.log(`  Other devices:  ${SCHEME}://${ip}:${PORT}`);
   if (USE_HTTPS) {
