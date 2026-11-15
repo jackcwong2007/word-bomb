@@ -710,7 +710,6 @@ body.shake .rug { animation: hit 0.4s linear; }
   }
 }
 
-.room-banner { font-weight: 900; letter-spacing: .12em; margin-top: .5rem; }
 .brainrot-timer { margin: .3rem; font-size: 1.8rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .display-help { max-width: 28rem; font-size: .9rem; }
 .meme-popup { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); z-index: 100; width: max-content; max-width: 90vw; padding: 1rem 1.5rem; border: 4px solid #111; border-radius: 16px; background: #d7ff3f; color: #111; font-size: clamp(1.2rem, 4vw, 2.5rem); font-weight: 900; text-align: center; box-shadow: 8px 8px 0 #111; pointer-events: none; }

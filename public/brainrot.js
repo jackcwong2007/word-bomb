@@ -2,9 +2,6 @@
 
 (() => {
   const displayOnly = new URLSearchParams(location.search).get('display') === '1';
-  const banner = document.createElement('div');
-  banner.className = 'room-banner';
-  document.querySelector('.brand').appendChild(banner);
   const popup = document.createElement('div');
   popup.className = 'meme-popup';
   popup.hidden = true;
@@ -33,7 +30,6 @@
   window.addEventListener('brainrot-state', ({ detail: state }) => {
     latest = state;
     clockOffset = state.serverNow - Date.now();
-    banner.textContent = `ROOM ${state.roomCode} · 5 seats`;
     if (displayOnly && state.phase === 'lobby') {
       document.getElementById('sub').textContent = 'Join from your phone. First player controls Start.';
     }

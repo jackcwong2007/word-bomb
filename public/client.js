@@ -2,8 +2,6 @@
 
 
 const displayOnly = new URLSearchParams(location.search).get('display') === '1';
-const roomInput = document.getElementById('room');
-roomInput.value = new URLSearchParams(location.search).get('room') || localStorage.getItem('wb-room') || '';
 
 const joinOverlay = document.getElementById('join');
 const joinForm = document.getElementById('join-form');
@@ -1188,7 +1186,6 @@ function connect() {
     joinNote.textContent = '';
     send({
       t: 'join',
-      room: roomInput.value.trim().toUpperCase(),
       name: localStorage.getItem('wb-name') || nameInput.value,
       token: localStorage.getItem('wb-token') || '',
     });
@@ -1253,12 +1250,11 @@ joinForm.addEventListener('submit', (ev) => {
   const name = nameInput.value.trim().slice(0, 16);
   if (!name) return;
   ctx();
-  localStorage.setItem('wb-room', roomInput.value.trim().toUpperCase());
   localStorage.setItem('wb-name', name);
   replaced = false;
   wantConnect = true;
   if (socket && socket.readyState === 1) {
-    send({ t: 'join', name, room: roomInput.value.trim().toUpperCase(), token: localStorage.getItem('wb-token') || '' });
+    send({ t: 'join', name, token: localStorage.getItem('wb-token') || '' });
     return;
   }
   connect();
@@ -1377,7 +1373,7 @@ function frame() {
 
 requestAnimationFrame(frame);
 
-if (displayOnly || (localStorage.getItem('wb-name') && roomInput.value.trim())) {
+if (displayOnly || localStorage.getItem('wb-name')) {
   wantConnect = true;
   connect();
 } else {

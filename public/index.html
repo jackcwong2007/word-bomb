@@ -55,6 +55,7 @@
     <aside>
       <h2>Aura ranking</h2>
       <p>For bragging rights. Last survivor wins.</p>
+      <ol id="leaderboard"></ol>
       <section>
         <h2>This round</h2>
         <ol id="log"></ol>
@@ -81,10 +82,6 @@
       <h2>Take a seat</h2>
       <p>When the labubu points at you, type a real word that contains the letters shown. You get two lives. Last person sitting wins.</p>
       <label>
-        Room code
-        <input id="room" maxlength="16" autocomplete="off" autocapitalize="characters" placeholder="Code on the laptop" required />
-      </label>
-      <label>
         Your name
         <input id="name" name="wordbomb-name" maxlength="16" placeholder="Alex" required />
       </label>
@@ -92,6 +89,41 @@
       <p class="fine" id="join-note"></p>
     </form>
   </div>
+
+  <div class="overlay hidden" id="win" role="dialog" aria-modal="true" aria-labelledby="win-title">
+    <div class="card win-card">
+      <p class="win-crown" aria-hidden="true">👑</p>
+      <h2 id="win-title">Winner</h2>
+      <p class="win-name" id="win-name"></p>
+      <p id="win-sub"></p>
+      <button id="win-ok" type="button">Press Enter</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="cam" role="dialog" aria-modal="true" aria-labelledby="cam-caption">
+    <div class="card cam-card">
+      <h2 id="cam-caption"></h2>
+      <video id="cam-video" autoplay playsinline muted></video>
+      <div class="cam-meter" aria-hidden="true"><div id="cam-meter"></div></div>
+      <p class="fine" id="cam-note"></p>
+      <div class="pick" id="cam-pick" hidden></div>
+      <button id="cam-close" type="button">Close (Enter)</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="meme" role="dialog" aria-modal="true" aria-label="Winner photo">
+    <div class="meme-window">
+      <div class="pop-bar">
+        <span class="pop-dots"><i></i><i></i><i></i></span>
+        <span class="pop-title">winner_final_FINAL(2).jpg</span>
+      </div>
+      <img id="meme-img" alt="Deep-fried photo" />
+      <button id="meme-close" type="button">Close (Enter)</button>
+    </div>
+  </div>
+  <div class="flyers" id="flyers" aria-hidden="true"></div>
+
+  <div class="popups" id="popups" aria-live="assertive"></div>
 
   <script src="brainrot.js"></script>
   <script src="client.js"></script>

@@ -11,7 +11,6 @@ const { WebSocketServer } = require('ws');
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC = path.resolve(__dirname, 'public');
 const MAX_PLAYERS = 5;
-const ROOM_CODE = (process.env.ROOM_CODE || crypto.randomBytes(3).toString('hex')).toUpperCase();
 const displays = new Set();
 const BRAINROT = new Set();
 const MAX_LIVES = 2;
@@ -338,7 +337,6 @@ function ensureHost() {
 function snapshot() {
   return {
     t: 'state',
-    roomCode: ROOM_CODE,
     phase: game.phase,
     countdown: game.countdown,
     players: game.players.map((p) => ({
@@ -591,9 +589,6 @@ function sendHello(ws, player) {
 
 function handleJoin(ws, msg) {
   if (ws.display) return;
-  if (String(msg.room || '').trim().toUpperCase() !== ROOM_CODE) {
-    return send(ws, { t: 'error', message: 'Wrong room code. Check the laptop display.' });
-  }
   if (ws.playerId) {
     const seated = playerById(ws.playerId);
     if (seated && seated.ws === ws) {
@@ -1044,7 +1039,6 @@ server.listen(PORT, '0.0.0.0', () => {
   const ips = lanAddresses();
   console.log('');
   console.log('Word Bomb is on the table.');
-  console.log(`  Room code: ${ROOM_CODE}`);
   console.log(`  Laptop display: http://localhost:${PORT}/?display=1`);
   console.log(`  This computer:  http://localhost:${PORT}`);
   if (!ips.length) console.log('  No other network address found. Friends on Wi-Fi may not see this machine.');
