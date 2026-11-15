@@ -805,3 +805,13 @@ body.my-turn[data-curse="mirror"] footer {
   background: #1a73e8; color: #fff; border: 0; border-radius: 2px;
   padding: 10px 22px; font-weight: 700; cursor: pointer;
 }
+/* ===== TUNG TUNG SAHUR on stupid turns ===== */
+body[data-curse="stupid"] .bomb svg { display: none; }
+body[data-curse="stupid"] .bomb {
+  background: center / auto 88% no-repeat;
+  image-rendering: pixelated;
+}
+body[data-curse="stupid"] .ring { inset: -10%; }
+body[data-curse="stupid"] .bomb          { background-image: url('assets/sahur-1.png'); }
+body[data-curse="stupid"] .bomb.fuse-mid { background-image: url('assets/sahur-2.png'); }
+body[data-curse="stupid"] .bomb.fuse-low { background-image: url('assets/sahur-3.png'); }
