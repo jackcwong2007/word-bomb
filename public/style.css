@@ -461,6 +461,216 @@ footer {
   cursor: pointer;
 }
 
+.cam-card { text-align: center; width: min(560px, 92vw); animation: pop 0.45s ease; }
+.cam-card h2 { color: var(--gold); }
+.cam-card video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  margin: 6px 0 10px;
+  border-radius: 12px;
+  background: #000;
+  transform: scaleX(-1); /* mirror, like a selfie cam */
+  object-fit: cover;
+}
+#cam { z-index: 7; }
+.cam-meter { height: 10px; margin: 0 0 8px; border-radius: 999px; background: #1c1411; overflow: hidden; }
+#cam-meter { height: 100%; width: 0%; background: linear-gradient(90deg, #ffd166, #ff5f57); transition: width 0.08s linear; }
+
+/* Winner's "pick a victim" list */
+.pick { padding: 8px 8px 0; text-align: center; }
+.pick-title { margin: 0 0 6px; font-weight: 800; font-size: 14px; color: #d4006f !important; }
+.cam-card .pick-title { color: var(--gold) !important; }
+.pick-none { margin: 0; font-size: 13px; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.pick-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  width: auto !important;
+  padding: 6px 12px 6px 6px !important;
+  border: 2px solid #1d1d22 !important;
+  border-radius: 999px !important;
+  background: #fff !important;
+  color: #1d1d22 !important;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pick-btn:hover:not(:disabled) { background: #ffe066 !important; transform: scale(1.05); }
+.pick-btn:disabled { opacity: 0.5; cursor: default; }
+.pick-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #1d1d22;
+  font-size: 12px;
+}
+
+/* Deep-fried winner photo popup */
+#meme { z-index: 8; }
+.meme-window {
+  width: min(640px, 94vw);
+  background: #f4f4f6;
+  color: #1d1d22;
+  border: 1px solid #c3c3cc;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 0 0 4px #ff00aa, 0 0 60px #ff00aa, 0 24px 60px rgba(0, 0, 0, 0.6);
+  font-family: system-ui, "Segoe UI", sans-serif;
+  animation: meme-in 0.7s cubic-bezier(.2, 1.6, .4, 1), meme-shake 0.18s linear 0.7s infinite;
+}
+.meme-window img { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; background: #000; }
+.meme-window button {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gold);
+  color: #2a160f;
+  font-weight: 800;
+  cursor: pointer;
+}
+@keyframes meme-in {
+  from { transform: scale(0) rotate(-720deg); }
+  to { transform: scale(1) rotate(0); }
+}
+@keyframes meme-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  25% { transform: translate(-3px, 2px) rotate(-0.6deg); }
+  50% { transform: translate(3px, -2px) rotate(0.6deg); }
+  75% { transform: translate(-2px, -3px) rotate(-0.4deg); }
+}
+
+/* Stuff flying everywhere */
+.flyers { position: fixed; inset: 0; pointer-events: none; z-index: 9; overflow: hidden; }
+.flyer {
+  position: absolute;
+  line-height: 1;
+  white-space: nowrap;
+  will-change: transform;
+  animation: fly linear forwards;
+}
+.flyer-text {
+  font-family: Impact, "Arial Black", sans-serif;
+  font-weight: 900;
+  -webkit-text-stroke: 2px #000;
+  text-shadow: 3px 3px 0 #000;
+}
+@keyframes fly {
+  from { transform: translate(0, 0) rotate(0) scale(0.6); opacity: 1; }
+  80% { opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1.4); opacity: 0; }
+}
+body.flash::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  z-index: 10;
+  pointer-events: none;
+  animation: flash-out 0.3s ease-out forwards;
+}
+@keyframes flash-out { to { opacity: 0; } }
+
+.win-card { text-align: center; animation: pop 0.45s ease; }
+.win-card h2 { text-transform: uppercase; color: var(--gold); }
+.win-crown { margin: 0; font-size: clamp(36px, 8vmin, 64px); }
+.win-name { font-size: clamp(22px, 4vmin, 34px) !important; font-weight: 800; color: var(--ink) !important; margin: 0 0 4px; overflow-wrap: anywhere; }
+
+/* Small fake browser-window popups off to the side, each with its own timer */
+.popups { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
+.popup {
+  pointer-events: auto;
+  position: absolute;
+  width: min(200px, 70vw);
+  background: #f4f4f6;
+  color: #1d1d22;
+  border: 1px solid #c3c3cc;
+  border-radius: 9px;
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  font-family: system-ui, "Segoe UI", sans-serif;
+  animation: popin 0.22s ease-out;
+}
+.popup:focus-within { border-color: #e0a400; box-shadow: 0 0 0 2px #e0a400, 0 12px 28px rgba(0, 0, 0, 0.45); }
+.popup.wrong { animation: wiggle 0.35s linear; }
+.popup.wrong input { border-color: #ff5f57; }
+.pop-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  background: linear-gradient(#e6e6ec, #d3d3dc);
+  border-bottom: 1px solid #c3c3cc;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pop-dots { display: flex; gap: 3px; }
+.pop-dots i { width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; }
+.pop-dots i:nth-child(2) { background: #febc2e; }
+.pop-dots i:nth-child(3) { background: #28c840; }
+.pop-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-time {
+  font-family: ui-monospace, Consolas, monospace;
+  background: #1d1d22;
+  color: #ffd166;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.pop-time.low { color: #ff6b5b; }
+.pop-x { border: 0; background: none; color: #555; font-size: 15px; line-height: 1; padding: 0 2px; cursor: pointer; }
+.pop-x:hover { color: #d33; }
+.pop-url {
+  margin: 5px 7px 0;
+  padding: 2px 8px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  font-size: 10px;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pop-body { padding: 6px 8px; text-align: center; }
+.pop-q { margin: 0 0 3px; font-size: 11px; color: #444; }
+.pop-code {
+  margin: 1px 0 5px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  user-select: none;
+}
+.pop-body canvas { display: block; width: 100%; max-width: 180px; height: auto; margin: 0 auto 5px; border-radius: 6px; user-select: none; }
+.pop-body input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 15px;
+  color: #1d1d22;
+  background: #fff;
+  border: 2px solid #c3c3cc;
+  border-radius: 7px;
+}
+.pop-body input:focus { outline: none; border-color: #e0a400; }
+.pop-timer { height: 4px; background: #ddd; }
+.pop-timer div { height: 100%; width: 100%; background: #e0a400; }
+.pop-timer div.low { background: #ff5f57; }
+@keyframes popin { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes wiggle {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px) rotate(-1.5deg); }
+  75% { transform: translateX(6px) rotate(1.5deg); }
+}
+
 body.shake .rug { animation: hit 0.4s linear; }
 
 @keyframes flicker { from { opacity: 0.55; } to { opacity: 1; } }
