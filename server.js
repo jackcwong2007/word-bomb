@@ -957,8 +957,7 @@ function handleRequest(req, res) {
       return;
     }
     res.writeHead(200, {
-      'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
+  'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',        'Cache-Control': 'no-cache',
     });
     res.end(data);
   });
