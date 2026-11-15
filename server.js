@@ -22,6 +22,7 @@ const COLORS = [
 const WORDS = new Set();
 const BY_SUB = new Map();
 const CANDIDATES = { 2: [], 3: [] };
+const CURSES = ['spin', 'autocorrect', 'captcha', 'shuffle', 'mirror', 'stupid'];
 
 function loadWords() {
   const slang = fs.readFileSync(path.join(__dirname, 'data', 'stupid.txt'), 'utf8');
@@ -57,8 +58,67 @@ function loadWords() {
   );
   if (WORDS.size < 200) throw new Error('Dictionary is too small to start a round.');
 }
+const STUPID = new Set();
+const STUPID_BY_SUB = new Map();
+const STUPID_CANDIDATES = { 2: [], 3: [] };
+
+function loadStupidWords() {
+  const raw = fs.readFileSync(path.join(__dirname, 'data', 'stupid.txt'), 'utf8');
+  for (const line of raw.split(/\r?\n/)) {
+    const word = line.trim().toLowerCase();
+    if (!/^[a-z]{3,15}$/.test(word) || STUPID.has(word)) continue;
+    STUPID.add(word);
+    const seen = new Set();
+    for (let len = 2; len <= 3; len++) {
+      for (let i = 0; i + len <= word.length; i++) {
+        const sub = word.slice(i, i + len);
+        if (seen.has(sub)) continue;
+        seen.add(sub);
+        let list = STUPID_BY_SUB.get(sub);
+        if (!list) {
+          list = [];
+          STUPID_BY_SUB.set(sub, list);
+        }
+        list.push(word);
+      }
+    }
+  }
+  // Only use letter chunks that at least 3 stupid words contain,
+  // so there's always more than one possible answer.
+  for (const [sub, list] of STUPID_BY_SUB) {
+    if (list.length >= 3 && STUPID_CANDIDATES[sub.length]) STUPID_CANDIDATES[sub.length].push(sub);
+  }
+  console.log(
+    `Stupid words: ${STUPID.size} · slices ${STUPID_CANDIDATES[2].length} / ${STUPID_CANDIDATES[3].length}`
+  );
+}
+
+loadStupidWords();
 
 loadWords();
+
+// Stupid words only = one of the wheel's curses.
+function isStupid() {
+  return game.curse === 'stupid';
+}
+
+// Spin the curse wheel for the next player.
+// Early in the game you usually get no curse; later almost always.
+function pickCurse() {
+  if (process.env.FORCE_CURSE) return process.env.FORCE_CURSE;
+  const noneChance = game.stage === 'skull' ? 0.1 : game.stage === 'red' ? 0.25 : 0.5;
+  if (Math.random() < noneChance) return 'none';
+  return CURSES[(Math.random() * CURSES.length) | 0];
+}
+
+// Pick letters that at least one unused stupid word contains.
+function pickStupidPrompt() {
+  const pool = STUPID_CANDIDATES[2].filter(
+    (sub) => sub !== game.prompt && STUPID_BY_SUB.get(sub).some((w) => !game.used.has(w))
+  );
+  const list = pool.length ? pool : STUPID_CANDIDATES[2];
+  return list[(Math.random() * list.length) | 0];
+}
 
 const game = {
   phase: 'lobby',
@@ -77,6 +137,7 @@ const game = {
   boom: null,
   startedCount: 0,
   timer: null,
+  curse: 'none',
 };
 
 let seq = 1;
@@ -180,6 +241,7 @@ function pickFrom(len, minLeft, hard) {
 }
 
 function pickPrompt() {
+  if (isStupid()) return pickStupidPrompt();
   const order = [rollLength(game.stage)];
   for (const len of [2, 3]) if (!order.includes(len)) order.push(len);
   const hard = game.stage === 'skull';
@@ -244,6 +306,8 @@ function snapshot() {
     winnerId: game.winnerId,
     boom: game.boom,
     maxLives: MAX_LIVES,
+    curse: game.curse,
+    stupid: isStupid(),
     log: game.log.slice(-16),
   };
 }
@@ -287,6 +351,7 @@ function endRound(winner) {
   game.phase = 'ended';
   game.currentId = null;
   game.prompt = '';
+  game.curse = 'none';
   game.countdown = 0;
   game.winnerId = winner ? winner.id : null;
   if (winner && game.startedCount > 1) pushLog(`${winner.name} wins the round`, 'win');
@@ -301,7 +366,8 @@ function advanceFrom(player, success) {
   const next = nextAlive(index < 0 ? 0 : index);
   if (!next) return endRound(null);
   game.currentId = next.id;
-  game.prompt = pickPrompt();
+  game.curse = pickCurse(); // 1. spin the wheel
+  game.prompt = pickPrompt(); // 2. then letters that fit the curse
   armTurn();
   return true;
 }
@@ -353,6 +419,7 @@ function beginRound() {
   game.stage = 'black';
   game.fuse = baseFuse('black');
   game.prompt = '';
+  game.curse = 'none';
   game.currentId = null;
   game.winnerId = null;
   game.boom = null;
@@ -407,6 +474,7 @@ function startPlaying() {
   game.phase = 'playing';
   game.countdown = 0;
   game.currentId = (living.find((p) => p.connected) || living[0]).id;
+  game.curse = process.env.FORCE_CURSE || 'none'; // first turn is normal unless forced
   game.prompt = pickPrompt();
   armTurn();
   broadcast();
@@ -428,6 +496,7 @@ function dropPlayer(player, reason) {
       const next = alive.find((p) => p.connected) || alive[0];
       game.currentId = next.id;
       game.fuse = fuseAfter(game.stage, game.fuse, false);
+      game.curse = pickCurse();
       game.prompt = pickPrompt();
       armTurn();
     }
@@ -544,7 +613,11 @@ function handleWord(ws, msg) {
   if (!word) return;
   if (!word.includes(game.prompt)) return nope(ws, `Needs the letters ${game.prompt.toUpperCase()}.`);
   if (word.length < 3) return nope(ws, 'Too short.');
-  if (!WORDS.has(word)) return nope(ws, 'Not in the dictionary.');
+  if (isStupid()) {
+    if (!STUPID.has(word)) return nope(ws, 'not brainrot enough 🤓');
+  } else if (!WORDS.has(word)) {
+    return nope(ws, 'Not in the dictionary.');
+  }
   if (game.used.has(word)) return nope(ws, 'Already used this round.');
   acceptWord(player, word);
 }
