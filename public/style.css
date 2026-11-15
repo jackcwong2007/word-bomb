@@ -817,3 +817,23 @@ body[data-curse="stupid"] .bomb.fuse-mid { background-image: url('assets/sahur-2
 body[data-curse="stupid"] .bomb.fuse-low { background-image: url('assets/sahur-3.png'); }
 
 .popups { z-index: 21; }
+/* ===== Pixel art bomb (normal turns) — gets angrier as the fuse burns ===== */
+body:not([data-curse="stupid"]) .bomb svg { display: none; }
+body:not([data-curse="stupid"]) .bomb {
+  background: center / auto 88% no-repeat;
+  background-image: url('assets/happy.PNG');
+  image-rendering: pixelated;
+}
+body:not([data-curse="stupid"]) .bomb.fuse-mid { background-image: url('assets/mid.PNG'); }
+body:not([data-curse="stupid"]) .bomb.fuse-low { background-image: url('assets/mad.PNG'); }
+body:not([data-curse="stupid"]) .ring { inset: -10%; }
+
+/* tint the bomb redder as it gets angrier */
+body:not([data-curse="stupid"]) .bomb.fuse-mid { filter: hue-rotate(-20deg) saturate(2); }
+body:not([data-curse="stupid"]) .bomb.fuse-low { filter: sepia(1) saturate(6) hue-rotate(-30deg); }
+/* bigger bomb + Sahur */
+.bomb {
+  width: 30cqmin;
+  height: 30cqmin;
+}
+body .bomb { background-size: auto 100%; }
