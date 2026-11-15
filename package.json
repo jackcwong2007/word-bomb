@@ -4,9 +4,11 @@
   "private": true,
   "description": "Local multiplayer Word Bomb. One machine hosts, others on the same network join in a browser.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "tunnel": "node server.js --tunnel"
   },
   "dependencies": {
+    "selfsigned": "^2.4.1",
     "ws": "^8.18.3"
   }
 }

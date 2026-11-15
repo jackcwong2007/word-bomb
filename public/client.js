@@ -133,16 +133,29 @@ function highlight(word, prompt) {
   return frag;
 }
 
-function renderNet(ips, port) {
+let lastNet = { ips: [], port: 0, url: '' };
+
+function renderNet(ips, port, url) {
+  lastNet = { ips, port, url: url || '' };
   netEl.replaceChildren();
-  const here = document.createElement('div');
-  here.textContent = `This computer: http://localhost:${port}`;
-  netEl.appendChild(here);
-  const links = (ips || []).map((ip) => `http://${ip}:${port}`);
-  for (const link of links) {
+  let links;
+  if (url) {
+    // Cloudflare tunnel link: works from anywhere with no browser warning.
     const row = document.createElement('div');
-    row.textContent = `Join from another device: ${link}`;
+    row.textContent = `Invite link: ${url}`;
     netEl.appendChild(row);
+    links = [url];
+  } else {
+    const here = document.createElement('div');
+    const scheme = location.protocol === 'https:' ? 'https' : 'http';
+    here.textContent = `This computer: ${scheme}://localhost:${port}`;
+    netEl.appendChild(here);
+    links = (ips || []).map((ip) => `${scheme}://${ip}:${port}`);
+    for (const link of links) {
+      const row = document.createElement('div');
+      row.textContent = `Join from another device: ${link}`;
+      netEl.appendChild(row);
+    }
   }
   if (links.length) {
     const copy = document.createElement('button');
@@ -452,6 +465,462 @@ function dismissWin() {
   if (!winOpen()) return;
   hideWin();
   stupidSound();
+  const self = you();
+  if (state && self && state.winnerId === self.id) openWinnerPicker(); // winner picks a loser; no camera for them
+}
+
+// ---- Reaction cam: after the win popup, show the player their own face.
+// The video stays in this browser; nothing is sent to the server.
+const camOverlay = document.getElementById('cam');
+const camVideo = document.getElementById('cam-video');
+const camCaption = document.getElementById('cam-caption');
+const camNote = document.getElementById('cam-note');
+const camClose = document.getElementById('cam-close');
+let camStream = null;
+
+function camOpen() {
+  return !camOverlay.classList.contains('hidden');
+}
+
+const camMeter = document.getElementById('cam-meter');
+
+// Face detection: Google MediaPipe Face Landmarker, loaded from a CDN the
+// first time it's needed (needs internet on the winner's computer).
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const JAW_OPEN = 0.5; // 0 = closed, 1 = wide open
+let faceLandmarker = null;
+let faceLoading = null;
+let camLoop = 0;
+let camSession = 0;
+
+function loadFaceLandmarker() {
+  if (faceLandmarker) return Promise.resolve(faceLandmarker);
+  if (!faceLoading) {
+    faceLoading = (async () => {
+      const vision = await import(`${MP_BASE}/vision_bundle.mjs`);
+      const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+      const make = (delegate) => vision.FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: FACE_MODEL, delegate },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        outputFaceBlendshapes: true,
+      });
+      try {
+        faceLandmarker = await make('GPU');
+      } catch {
+        faceLandmarker = await make('CPU');
+      }
+      return faceLandmarker;
+    })().catch((err) => {
+      faceLoading = null;
+      throw err;
+    });
+  }
+  return faceLoading;
+}
+
+const camPickEl = document.getElementById('cam-pick');
+const camMeterWrap = document.querySelector('#cam .cam-meter');
+
+// Winner's window: pick a loser to turn on THEIR camera (it opens on the
+// loser's own screen for the mouth meme). The winner's camera stays off.
+function openWinnerPicker() {
+  camSession += 1;
+  camCaption.textContent = 'Pick a loser 😈';
+  camNote.textContent = 'Their camera turns on and they have to open their mouth.';
+  camVideo.hidden = true;
+  camMeterWrap.hidden = true;
+  renderPicker(camPickEl);
+  camOverlay.classList.remove('hidden');
+  const first = camPickEl.querySelector('button');
+  (first || camClose).focus();
+}
+
+function renderPicker(container) {
+  container.replaceChildren();
+  container.hidden = false;
+  const title = document.createElement('p');
+  title.className = 'pick-title';
+  title.textContent = 'Who is getting cooked?';
+  container.appendChild(title);
+  // Losers = people who played this round and aren't you (the winner).
+  const others = state ? state.players.filter((p) => !p.you && p.connected && !p.spectating) : [];
+  if (state && state.picked) {
+    title.textContent = 'Loser already picked 📸';
+    return;
+  }
+  if (!others.length) {
+    const none = document.createElement('p');
+    none.className = 'pick-none';
+    none.textContent = 'No losers here to pick 😢';
+    container.appendChild(none);
+    return;
+  }
+  const row = document.createElement('div');
+  row.className = 'pick-row';
+  for (const p of others) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pick-btn';
+    const dot = document.createElement('span');
+    dot.className = 'pick-dot';
+    dot.style.background = p.color;
+    dot.textContent = (p.name || '?').slice(0, 1).toUpperCase();
+    btn.append(dot, document.createTextNode(p.name));
+    btn.addEventListener('click', () => {
+      send({ t: 'pick', id: p.id });
+      for (const b of row.querySelectorAll('button')) b.disabled = true;
+      title.textContent = `📸 Turning on ${p.name}'s camera…`;
+      tone(1320, 0.08, 'square', 0.05);
+      const session = camSession;
+      setTimeout(() => {
+        if (session === camSession && camOpen()) closeCam();
+      }, 1600);
+    });
+    row.appendChild(btn);
+  }
+  container.appendChild(row);
+}
+
+async function openCam(opts) {
+  const session = ++camSession;
+  camCaption.textContent = (opts && opts.caption) || 'Open your mouth';
+  camNote.textContent = '';
+  camPickEl.hidden = true;
+  camMeterWrap.hidden = false;
+  camMeter.style.width = '0%';
+  camVideo.hidden = false;
+  camOverlay.classList.remove('hidden');
+  camClose.focus();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    camVideo.hidden = true;
+    camNote.textContent = 'This browser blocks the camera here. Open the game with its https:// link.';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    if (session !== camSession || !camOpen()) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    camStream = stream;
+    camVideo.srcObject = stream;
+    await camVideo.play().catch(() => {});
+  } catch {
+    camVideo.hidden = true;
+    camNote.textContent = 'No camera, or camera permission was denied. Lucky you.';
+    return;
+  }
+  camNote.textContent = 'Loading face AI…';
+  let detector = null;
+  try {
+    detector = await loadFaceLandmarker();
+  } catch {
+    detector = null;
+  }
+  if (session !== camSession || !camOpen()) return;
+  if (!detector) {
+    snapCountdown(session, 'Face AI failed to load (no internet?). Snapping anyway in');
+    return;
+  }
+  camNote.textContent = 'Waiting for that mouth…';
+  watchMouth(detector, session);
+}
+
+function snapCountdown(session, text) {
+  let n = 3;
+  const tick = () => {
+    if (session !== camSession || !camOpen()) return;
+    if (n === 0) return snapMeme(null);
+    camNote.textContent = `${text} ${n}…`;
+    n -= 1;
+    setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function watchMouth(detector, session) {
+  let streak = 0;
+  let lastTs = -1;
+  const started = performance.now();
+  const step = () => {
+    if (session !== camSession || !camOpen()) return;
+    const now = performance.now();
+    if (camVideo.readyState >= 2 && now > lastTs) {
+      lastTs = now;
+      let res = null;
+      try {
+        res = detector.detectForVideo(camVideo, now);
+      } catch {
+        res = null;
+      }
+      const face = res && res.faceLandmarks && res.faceLandmarks[0];
+      const shapes = res && res.faceBlendshapes && res.faceBlendshapes[0];
+      const jawCat = shapes && shapes.categories.find((c) => c.categoryName === 'jawOpen');
+      const jaw = jawCat ? jawCat.score : 0;
+      camMeter.style.width = `${Math.min(1, jaw / JAW_OPEN) * 100}%`;
+      if (!face) camNote.textContent = 'Where is your face? 🤨';
+      else if (jaw > JAW_OPEN * 0.4) camNote.textContent = 'WIDER 😮';
+      else camNote.textContent = 'Waiting for that mouth…';
+      streak = face && jaw >= JAW_OPEN ? streak + 1 : 0;
+      if (streak >= 4) {
+        snapMeme(face);
+        return;
+      }
+    }
+    if (now - started > 20000) {
+      snapMeme(null); // too shy: snap anyway
+      return;
+    }
+    camLoop = requestAnimationFrame(step);
+  };
+  camLoop = requestAnimationFrame(step);
+}
+
+function closeCam() {
+  camSession += 1;
+  cancelAnimationFrame(camLoop);
+  if (camStream) camStream.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  camVideo.srcObject = null;
+  camOverlay.classList.add('hidden');
+}
+
+camClose.addEventListener('click', closeCam);
+
+// ---- The meme: grab the frame, deep-fry it, pop it up with chaos flying around.
+const memeOverlay = document.getElementById('meme');
+const memeImg = document.getElementById('meme-img');
+const memeClose = document.getElementById('meme-close');
+const flyersEl = document.getElementById('flyers');
+const MEME_TOP = ['WHEN YOU WIN WORD BOMB', 'CERTIFIED BRAINROT CHAMPION', 'SKIBIDI WINNER', 'THE GOAT HAS SPOKEN', 'POV: YOU WON'];
+const MEME_BOTTOM = ['AND OPEN YOUR MOUTH', 'SHEESH', '+1000 AURA', 'NO CAP 🧢', 'BUSSIN FR', 'OHIO FINAL BOSS'];
+const STICKERS = ['😂', '🔥', '💯', '👌', '😳', '💀', '🤣', '🗿', '🚨', '‼️', '🥶', '👑'];
+const FLY_TEXT = ['+1000 AURA', 'SHEESH', 'WOW', 'MLG', 'GG EZ', 'SIGMA', 'RIZZ', 'OHIO', 'W', 'NO CAP', 'BUSSIN', '360 NOSCOPE', 'GOATED', 'SKIBIDI'];
+let flyTimer = null;
+
+function memeOpen() {
+  return !memeOverlay.classList.contains('hidden');
+}
+
+function snapMeme(face) {
+  const w = camVideo.videoWidth || 640;
+  const h = camVideo.videoHeight || 480;
+  const shot = document.createElement('canvas');
+  shot.width = w;
+  shot.height = h;
+  const g = shot.getContext('2d');
+  g.translate(w, 0);
+  g.scale(-1, 1); // mirror, to match what they saw
+  g.drawImage(camVideo, 0, 0, w, h);
+  const pt = (i) => (face && face[i] ? { x: (1 - face[i].x) * w, y: face[i].y * h } : null);
+  const avg = (a, b) => (a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : null);
+  const marks = face ? {
+    mouth: avg(pt(13), pt(14)),
+    mouthWidth: pt(61) && pt(291) ? Math.hypot(pt(61).x - pt(291).x, pt(61).y - pt(291).y) : w * 0.15,
+    eyes: face.length > 473 ? [pt(468), pt(473)] : [avg(pt(33), pt(133)), avg(pt(362), pt(263))],
+  } : null;
+  closeCam();
+  airhorn();
+  deepFry(shot, marks).then(showMeme);
+}
+
+function bulge(g, cx, cy, r, power) {
+  const x0 = Math.max(0, Math.floor(cx - r));
+  const y0 = Math.max(0, Math.floor(cy - r));
+  const bw = Math.min(g.canvas.width, Math.ceil(cx + r)) - x0;
+  const bh = Math.min(g.canvas.height, Math.ceil(cy + r)) - y0;
+  if (bw <= 0 || bh <= 0) return;
+  const img = g.getImageData(x0, y0, bw, bh);
+  const src = new Uint8ClampedArray(img.data);
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const dx = x + x0 - cx;
+      const dy = y + y0 - cy;
+      const d = Math.hypot(dx, dy);
+      if (d >= r) continue;
+      const f = Math.pow(d / r, power - 1); // sample closer to the middle = magnify
+      const sx = Math.min(bw - 1, Math.max(0, Math.round(cx + dx * f - x0)));
+      const sy = Math.min(bh - 1, Math.max(0, Math.round(cy + dy * f - y0)));
+      const di = (y * bw + x) * 4;
+      const si = (sy * bw + sx) * 4;
+      img.data[di] = src[si];
+      img.data[di + 1] = src[si + 1];
+      img.data[di + 2] = src[si + 2];
+    }
+  }
+  g.putImageData(img, x0, y0);
+}
+
+function loadImage(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.src = url;
+  });
+}
+
+function memeText(g, text, y, size) {
+  g.font = `900 ${size}px Impact, "Arial Black", sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = Math.max(4, size / 8);
+  g.strokeStyle = '#000';
+  g.fillStyle = '#fff';
+  g.strokeText(text, g.canvas.width / 2, y, g.canvas.width * 0.94);
+  g.fillText(text, g.canvas.width / 2, y, g.canvas.width * 0.94);
+}
+
+async function deepFry(shot, marks) {
+  const w = shot.width;
+  const h = shot.height;
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const g = out.getContext('2d', { willReadFrequently: true });
+
+  // 1. Oversaturate everything.
+  g.filter = 'saturate(380%) contrast(190%) brightness(108%)';
+  g.drawImage(shot, 0, 0);
+  g.filter = 'none';
+
+  // 2. Big mouth bulge (or the middle of the frame if no face was found).
+  const mouth = marks && marks.mouth ? marks.mouth : { x: w / 2, y: h * 0.62 };
+  const mr = marks ? marks.mouthWidth * 1.6 : w * 0.2;
+  bulge(g, mouth.x, mouth.y, mr, 1.9);
+
+  // 3. Grain + red push.
+  const img = g.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 70;
+    d[i] = d[i] * 1.12 + n + 10;
+    d[i + 1] = d[i + 1] + n;
+    d[i + 2] = d[i + 2] * 0.85 + n;
+  }
+  g.putImageData(img, 0, 0);
+
+  // 4. Laser eyes.
+  const eyes = marks ? marks.eyes.filter(Boolean) : [];
+  for (const eye of eyes) {
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    g.shadowColor = '#ff0000';
+    g.shadowBlur = 30;
+    g.strokeStyle = 'rgba(255, 40, 20, 0.9)';
+    g.lineCap = 'round';
+    for (let k = 0; k < 2; k++) {
+      const ang = (Math.random() - 0.5) * 1.2 + (eye.x < w / 2 ? Math.PI : 0);
+      g.lineWidth = 10 + k * 8;
+      g.beginPath();
+      g.moveTo(eye.x, eye.y);
+      g.lineTo(eye.x + Math.cos(ang) * w * 1.5, eye.y + Math.sin(ang) * w * 1.5);
+      g.stroke();
+    }
+    const glow = g.createRadialGradient(eye.x, eye.y, 0, eye.x, eye.y, w * 0.07);
+    glow.addColorStop(0, 'rgba(255,255,255,1)');
+    glow.addColorStop(0.3, 'rgba(255,60,30,0.95)');
+    glow.addColorStop(1, 'rgba(255,0,0,0)');
+    g.fillStyle = glow;
+    g.beginPath();
+    g.arc(eye.x, eye.y, w * 0.07, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+
+  // 5. Emoji stickers.
+  for (let i = 0; i < 9; i++) {
+    g.save();
+    g.translate(randInt(0, w), randInt(0, h));
+    g.rotate((Math.random() - 0.5) * 1.4);
+    g.font = `${randInt(Math.round(w * 0.06), Math.round(w * 0.13))}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(pick(STICKERS), 0, 0);
+    g.restore();
+  }
+
+  // 6. Impact font captions.
+  const size = Math.round(h * 0.11);
+  memeText(g, pick(MEME_TOP), size * 0.75, size);
+  memeText(g, pick(MEME_BOTTOM), h - size * 0.75, size);
+
+  // 7. Crush it with awful JPEG quality, twice.
+  for (let k = 0; k < 2; k++) {
+    const crushed = await loadImage(out.toDataURL('image/jpeg', 0.1));
+    g.drawImage(crushed, 0, 0);
+  }
+  return out;
+}
+
+function showMeme(canvas) {
+  memeImg.src = canvas.toDataURL('image/jpeg', 0.7);
+  memeOverlay.classList.remove('hidden');
+  memeClose.focus();
+  document.body.classList.add('flash');
+  setTimeout(() => document.body.classList.remove('flash'), 300);
+  clearInterval(flyTimer);
+  flyTimer = setInterval(spawnFlyer, 90);
+  for (let i = 0; i < 25; i++) spawnFlyer();
+}
+
+function spawnFlyer() {
+  if (flyersEl.childElementCount > 120) return;
+  const el = document.createElement('span');
+  const isText = Math.random() < 0.35;
+  el.className = isText ? 'flyer flyer-text' : 'flyer';
+  el.textContent = isText ? pick(FLY_TEXT) : pick(STICKERS);
+  if (isText) el.style.color = `hsl(${randInt(0, 360)}, 100%, 60%)`;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Start off one edge, fly through the screen to somewhere random.
+  const side = randInt(0, 3);
+  const sx = side === 0 ? -80 : side === 1 ? vw + 80 : randInt(0, vw);
+  const sy = side === 2 ? -80 : side === 3 ? vh + 80 : randInt(0, vh);
+  el.style.left = `${sx}px`;
+  el.style.top = `${sy}px`;
+  el.style.fontSize = `${randInt(isText ? 18 : 28, isText ? 44 : 72)}px`;
+  el.style.setProperty('--dx', `${randInt(0, vw) - sx}px`);
+  el.style.setProperty('--dy', `${randInt(0, vh) - sy}px`);
+  el.style.setProperty('--rot', `${randInt(-720, 720)}deg`);
+  el.style.animationDuration = `${(1.4 + Math.random() * 2).toFixed(2)}s`;
+  el.addEventListener('animationend', () => el.remove());
+  flyersEl.appendChild(el);
+}
+
+function closeMeme() {
+  clearInterval(flyTimer);
+  flyTimer = null;
+  flyersEl.replaceChildren();
+  memeOverlay.classList.add('hidden');
+  memeImg.removeAttribute('src');
+}
+
+memeClose.addEventListener('click', closeMeme);
+
+function airhorn() {
+  if (!soundOn) return;
+  const c = ctx();
+  const blasts = [[0, 0.22], [0.3, 0.22], [0.6, 0.7]];
+  for (const [delay, dur] of blasts) {
+    const t0 = c.currentTime + delay;
+    for (const freq of [415, 420, 622, 830]) {
+      const osc = c.createOscillator();
+      const amp = c.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq * 0.92, t0);
+      osc.frequency.linearRampToValueAtTime(freq, t0 + 0.05);
+      amp.gain.setValueAtTime(0.0001, t0);
+      amp.gain.linearRampToValueAtTime(0.035, t0 + 0.03);
+      amp.gain.setValueAtTime(0.035, t0 + dur - 0.05);
+      amp.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(amp);
+      amp.connect(c.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    }
+  }
 }
 
 winOkBtn.addEventListener('click', dismissWin);
@@ -677,7 +1146,11 @@ function onState(next) {
   }
   if (next.boom) lastBoom = next.boom.at;
   if (next.phase !== 'playing') lastTick = null;
-  if (next.phase !== 'ended') hideWin();
+  if (next.phase !== 'ended') {
+    hideWin();
+    if (camOpen()) closeCam();
+    if (memeOpen()) closeMeme();
+  }
   else if (state && state.phase !== 'ended') showWin(next);
   const turnMoved = state && (next.currentId !== state.currentId || next.passes !== state.passes || next.phase !== state.phase);
   state = next;
@@ -716,11 +1189,23 @@ function connect() {
       localStorage.setItem('wb-token', msg.token);
       localStorage.setItem('wb-name', localStorage.getItem('wb-name') || nameInput.value);
       joinOverlay.classList.add('hidden');
-      renderNet(msg.ips, msg.port);
+      renderNet(msg.ips, msg.port, msg.url);
+      return;
+    }
+    if (msg.t === 'url') {
+      renderNet(lastNet.ips, lastNet.port, msg.url);
       return;
     }
     if (msg.t === 'state') return onState(msg);
     if (msg.t === 'popup' || msg.t === 'popclose' || msg.t === 'popwrong') return onPopupMessage(msg);
+    if (msg.t === 'picked') {
+      // The winner picked you: your own camera opens, on your screen.
+      hideWin();
+      if (memeOpen()) closeMeme();
+      if (camOpen()) closeCam();
+      openCam({ caption: `${msg.by} picked you 😈 Open your mouth`, canPick: false });
+      return;
+    }
     if (msg.t === 'nope') {
       hintEl.textContent = msg.message;
       hintEl.classList.add('warn');
@@ -826,6 +1311,20 @@ entry.addEventListener('input', () => {
 
 document.addEventListener('keydown', (ev) => {
   if (inPopup(ev.target)) return;
+  if (memeOpen()) {
+    if (ev.key === 'Enter' || ev.key === 'Escape') {
+      ev.preventDefault();
+      if (!ev.repeat) closeMeme();
+    }
+    return;
+  }
+  if (camOpen()) {
+    if (ev.key === 'Enter' || ev.key === 'Escape') {
+      ev.preventDefault();
+      if (!ev.repeat) closeCam();
+    }
+    return;
+  }
   if (winOpen()) {
     if (ev.key === 'Enter') {
       ev.preventDefault();

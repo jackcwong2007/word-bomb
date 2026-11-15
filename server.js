@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const { WebSocketServer } = require('ws');
@@ -130,6 +131,7 @@ const game = {
   startedCount: 0,
   timer: null,
   curse: 'none',
+  picked: false, // has the winner picked someone for the camera this round?
 };
 
 let seq = 1;
@@ -354,6 +356,7 @@ function snapshot() {
     maxLives: MAX_LIVES,
     curse: game.curse,
     stupid: isStupid(),
+    picked: game.picked,
     log: game.log.slice(-16),
   };
 }
@@ -399,6 +402,7 @@ function endRound(winner) {
   game.curse = 'none';
   game.countdown = 0;
   game.winnerId = winner ? winner.id : null;
+  game.picked = false;
   if (winner && game.startedCount > 1) pushLog(`${winner.name} wins the round`, 'win');
   else if (winner) pushLog(`Practice over · ${game.passes} words`, 'win');
   else pushLog(`The bomb wins · ${game.passes} words defused`, 'boom');
@@ -565,6 +569,7 @@ function sendHello(ws, player) {
     token: player.token,
     ips: lanAddresses(),
     port: PORT,
+    url: publicUrl,
   });
 }
 
@@ -788,6 +793,21 @@ function popupFail(player) {
   broadcast();
 }
 
+// The winner picks one loser; that player's own camera turns on
+// (on their own screen) for the "open your mouth" meme.
+function handlePick(ws, msg) {
+  const player = playerById(ws.playerId);
+  if (!player || game.phase !== 'ended' || game.winnerId !== player.id) return;
+  if (game.picked) return nope(ws, 'You already picked someone this round.');
+  const target = playerById(String(msg.id || ''));
+  if (!target || target === player || !target.connected) return nope(ws, "They're not here anymore.");
+  if (target.spectating) return nope(ws, "They didn't play this round.");
+  game.picked = true;
+  pushLog(`${player.name} picked ${target.name} for the camera 📸`, 'win');
+  send(target.ws, { t: 'picked', by: player.name });
+  broadcast();
+}
+
 function handleLeave(ws) {
   const player = playerById(ws.playerId);
   if (!player) return;
@@ -805,7 +825,89 @@ const TYPES = {
   '.ico': 'image/x-icon',
 };
 
-const server = http.createServer((req, res) => {
+// HTTPS so browsers on other devices are allowed to use the camera.
+// A self-signed certificate is made on first run (and remade if this
+// computer's network address changes). Set HTTPS=0 to use plain http.
+// `npm run tunnel` (or --tunnel): a free Cloudflare quick tunnel gives the game a
+// real, trusted https://….trycloudflare.com link, so no browser warning anywhere.
+// Locally the game then runs on plain http (localhost is already camera-safe).
+const TUNNEL = process.env.TUNNEL === '1' || process.argv.includes('--tunnel');
+const USE_HTTPS = process.env.HTTPS !== '0' && !TUNNEL;
+let publicUrl = '';
+
+function findCloudflared() {
+  const spots = [
+    process.env.CLOUDFLARED,
+    'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe',
+    'C:\\Program Files\\cloudflared\\cloudflared.exe',
+  ].filter(Boolean);
+  return spots.find((p) => fs.existsSync(p)) || 'cloudflared';
+}
+
+function startTunnel() {
+  const { spawn } = require('child_process');
+  console.log('  Starting Cloudflare tunnel…');
+  const child = spawn(findCloudflared(), ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], {
+    windowsHide: true,
+  });
+  const onData = (buf) => {
+    const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (!m || publicUrl) return;
+    publicUrl = m[0];
+    console.log('');
+    console.log(`  Invite link (works anywhere, no warning):  ${publicUrl}`);
+    console.log('');
+    for (const player of game.players) send(player.ws, { t: 'url', url: publicUrl });
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('error', (err) => {
+    console.error(`  Could not start cloudflared (${err.message}). Install it with: winget install Cloudflare.cloudflared`);
+  });
+  child.on('exit', (code) => {
+    if (publicUrl) console.log(`  Cloudflare tunnel closed (code ${code}). The invite link no longer works.`);
+    publicUrl = '';
+  });
+  const stop = () => {
+    try { child.kill(); } catch { /* already gone */ }
+  };
+  process.on('exit', stop);
+  process.on('SIGINT', () => { stop(); process.exit(0); });
+}
+const CERT_DIR = path.join(__dirname, 'certs');
+
+function loadOrMakeCert() {
+  const ips = lanAddresses();
+  const want = ['localhost', '127.0.0.1', ...ips].join(',');
+  const keyFile = path.join(CERT_DIR, 'key.pem');
+  const certFile = path.join(CERT_DIR, 'cert.pem');
+  const forFile = path.join(CERT_DIR, 'for.txt');
+  try {
+    if (fs.readFileSync(forFile, 'utf8') === want) {
+      return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
+    }
+  } catch { /* no cert yet */ }
+  const selfsigned = require('selfsigned');
+  const altNames = [
+    { type: 2, value: 'localhost' },
+    { type: 7, ip: '127.0.0.1' },
+    ...ips.map((ip) => ({ type: 7, ip })),
+  ];
+  const pems = selfsigned.generate([{ name: 'commonName', value: 'Word Bomb (local)' }], {
+    days: 825,
+    keySize: 2048,
+    algorithm: 'sha256',
+    extensions: [{ name: 'subjectAltName', altNames }],
+  });
+  fs.mkdirSync(CERT_DIR, { recursive: true });
+  fs.writeFileSync(keyFile, pems.private);
+  fs.writeFileSync(certFile, pems.cert);
+  fs.writeFileSync(forFile, want);
+  console.log('Made a new self-signed certificate for', want);
+  return { key: pems.private, cert: pems.cert };
+}
+
+function handleRequest(req, res) {
   let pathname = '/index.html';
   try {
     pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -834,9 +936,15 @@ const server = http.createServer((req, res) => {
     });
     res.end(data);
   });
-});
+}
+
+const server = USE_HTTPS
+  ? https.createServer(loadOrMakeCert(), handleRequest)
+  : http.createServer(handleRequest);
+const SCHEME = USE_HTTPS ? 'https' : 'http';
 
 const wss = new WebSocketServer({ server });
+wss.on('error', () => {}); // listen errors are reported by server.on('error') below
 
 wss.on('connection', (ws) => {
   ws.on('error', () => {});
@@ -854,6 +962,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'start') return handleStart(ws);
     if (msg.t === 'word') return handleWord(ws, msg);
     if (msg.t === 'popanswer') return handlePopAnswer(ws, msg);
+    if (msg.t === 'pick') return handlePick(ws, msg);
     if (msg.t === 'leave') return handleLeave(ws);
   });
   ws.on('close', () => {
@@ -896,8 +1005,15 @@ server.listen(PORT, '0.0.0.0', () => {
   const ips = lanAddresses();
   console.log('');
   console.log('Word Bomb is on the table.');
-  console.log(`  This computer:  http://localhost:${PORT}`);
+  console.log(`  This computer:  ${SCHEME}://localhost:${PORT}`);
   if (!ips.length) console.log('  No other network address found. Friends on Wi-Fi may not see this machine.');
-  for (const ip of ips) console.log(`  Other devices:  http://${ip}:${PORT}`);
+  for (const ip of ips) console.log(`  Other devices:  ${SCHEME}://${ip}:${PORT}`);
+  if (USE_HTTPS) {
+    console.log('');
+    console.log('  The certificate is self-signed, so browsers show a warning the first time.');
+    console.log('  Click "Advanced" -> "Proceed" (Chrome/Edge) or "Accept the risk" (Firefox).');
+    console.log('  Tip: run "npm run tunnel" instead for a link with no warning.');
+  }
   console.log('');
+  if (TUNNEL) startTunnel();
 });
