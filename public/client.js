@@ -343,6 +343,7 @@ function renderCenter() {
     stageEl.classList.remove('cursed');
   }  
   if (self && self.spectating) subEl.textContent = 'You join when the next round starts.';
+  else if (yourTurn && state.curse === 'stupid') subEl.textContent = 'BRAINROT ONLY 🧠 e.g. rizz, skibidi, aura, delulu';
   else if (yourTurn) subEl.textContent = 'Type a word with those letters.';
   else if (turn) subEl.textContent = `${turn.name} is holding the bomb.`;
   else subEl.textContent = '';
@@ -1505,6 +1506,7 @@ function checkCaptcha() {
 // Block keyboard typing while the captcha is open
 document.addEventListener('keydown', (ev) => {
   if (!captchaOpen || ev.target === nameInput) return;
+  if (inPopup(ev.target)) return; // let Jack's popup windows still be answered
   if (ev.key.length === 1 || ev.key === 'Enter' || ev.key === 'Backspace') {
     ev.preventDefault();
     ev.stopImmediatePropagation();
