@@ -562,6 +562,8 @@ function frame() {
   const portion = state.fuse ? Math.max(0, Math.min(1, left / state.fuse)) : 0;
   ringEl.style.setProperty('--p', String(portion));
   bombEl.classList.toggle('critical', portion < 0.3 && left > 0);
+    bombEl.classList.toggle('fuse-mid', portion < 0.66 && portion >= 0.33);
+  bombEl.classList.toggle('fuse-low', portion < 0.33);
   if (!soundOn) return;
   const bucket = left < 3 ? Math.floor(left * 2) : Math.floor(left);
   if (lastTick === null) {
