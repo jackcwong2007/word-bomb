@@ -41,6 +41,7 @@ let lastTick = null;
 let primed = false;
 let replaced = false;
 let audioCtx = null;
+let usedSet = new Set();
 
 nameInput.value = localStorage.getItem('wb-name') || '';
 
@@ -347,6 +348,13 @@ function paintPreview() {
     previewEl.appendChild(span);
     return;
   }
+  if (usedSet.has(word)) {
+    const span = document.createElement('span');
+    span.className = 'bad';
+    span.textContent = 'Already used this round';
+    previewEl.appendChild(span);
+    return;
+  }
   previewEl.append(highlight(word, prompt));
 }
 
@@ -374,6 +382,7 @@ function onState(next) {
   if (next.phase !== 'playing') lastTick = null;
   const turnMoved = state && (next.currentId !== state.currentId || next.passes !== state.passes || next.phase !== state.phase);
   state = next;
+  usedSet = new Set(next.used || []);
   if (turnMoved) {
     entry.value = '';
     entry.classList.remove('bad');
@@ -491,6 +500,12 @@ form.addEventListener('submit', (ev) => {
   if (!clean) return;
   if (state.prompt && !clean.includes(state.prompt)) {
     hintEl.textContent = `Needs the letters ${state.prompt.toUpperCase()}.`;
+    hintEl.classList.add('warn');
+    entry.classList.add('bad');
+    return;
+  }
+  if (usedSet.has(clean)) {
+    hintEl.textContent = 'Already used this round.';
     hintEl.classList.add('warn');
     entry.classList.add('bad');
     return;
