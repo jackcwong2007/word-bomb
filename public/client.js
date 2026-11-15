@@ -348,7 +348,7 @@ function renderForm() {
       : 'Type a word';
   } else if (document.activeElement !== entry) {
     entry.placeholder = state.prompt ? `Contains ${state.prompt.toUpperCase()}` : 'Type a word';
-    entry.focus();
+    if (!inPopup(document.activeElement)) entry.focus();
   }
   paintPreview();
 }
@@ -387,6 +387,282 @@ function render() {
   renderForm();
 }
 
+// ---- Stupid sound: slide-whistle up, wobbly "wah wah wah", then a cartoon bonk.
+function slide(from, to, dur, type, gain, delay) {
+  if (!soundOn) return;
+  const c = ctx();
+  const t0 = c.currentTime + (delay || 0);
+  const osc = c.createOscillator();
+  const amp = c.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(from, t0);
+  osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  amp.gain.setValueAtTime(gain, t0);
+  amp.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  osc.connect(amp);
+  amp.connect(c.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur);
+}
+
+function stupidSound() {
+  slide(300, 1800, 0.35, 'sine', 0.12, 0);
+  slide(520, 380, 0.22, 'sawtooth', 0.07, 0.4);
+  slide(440, 320, 0.22, 'sawtooth', 0.07, 0.65);
+  slide(360, 140, 0.45, 'sawtooth', 0.07, 0.9);
+  slide(220, 60, 0.18, 'square', 0.1, 1.4);
+}
+
+// ---- End-of-round popup: press Enter to close it and play the stupid sound.
+const winOverlay = document.getElementById('win');
+const winNameEl = document.getElementById('win-name');
+const winSubEl = document.getElementById('win-sub');
+const winOkBtn = document.getElementById('win-ok');
+const winTitleEl = document.getElementById('win-title');
+const winCrownEl = document.querySelector('#win .win-crown');
+
+function winOpen() {
+  return !winOverlay.classList.contains('hidden');
+}
+
+function showWin(next) {
+  const winner = next.players.find((p) => p.id === next.winnerId);
+  const solo = next.players.filter((p) => !p.spectating).length < 2;
+  if (winner) {
+    winTitleEl.textContent = 'Winner';
+    winCrownEl.textContent = '👑';
+    winNameEl.textContent = winner.you ? `${winner.name} (you)` : winner.name;
+    winSubEl.textContent = solo ? `${next.passes} words defused.` : 'Last one sitting.';
+  } else {
+    winTitleEl.textContent = 'Game over';
+    winCrownEl.textContent = '💥';
+    winNameEl.textContent = 'The bomb wins';
+    winSubEl.textContent = `${next.passes} words defused.`;
+  }
+  winOverlay.classList.remove('hidden');
+  winOkBtn.focus();
+}
+
+function hideWin() {
+  winOverlay.classList.add('hidden');
+}
+
+function dismissWin() {
+  if (!winOpen()) return;
+  hideWin();
+  stupidSound();
+}
+
+winOkBtn.addEventListener('click', dismissWin);
+
+// ---- Random popups: small fake browser windows at random spots on screen.
+// The server decides when each player gets one and enforces each window's
+// own timer; this just draws them and sends answers back.
+const popupsEl = document.getElementById('popups');
+
+const URLS = [
+  'totally-not-a-virus.biz', 'free-robux.ru', 'download-more-ram.com',
+  'verify-ur-brain.gov', 'skibidi-security.io', 'hot-bombs-in-ur-area.net',
+  'definitely-a-bank.co', 'ohio-captcha.org',
+];
+const popups = new Map(); // id -> { el, input, dur, deadline, timeEl, barEl }
+let chaosLooping = false;
+
+function randInt(lo, hi) {
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+function pick(list) {
+  return list[randInt(0, list.length - 1)];
+}
+
+function drawCaptcha(canvas, text) {
+  const g = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  g.fillStyle = '#f3e9d8';
+  g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 80; i++) {
+    g.fillStyle = `hsla(${randInt(0, 360)}, 50%, 45%, 0.35)`;
+    g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+  const step = (w - 28) / text.length;
+  for (let i = 0; i < text.length; i++) {
+    g.save();
+    g.translate(18 + i * step + randInt(-3, 3), h / 2 + randInt(-5, 5));
+    g.rotate((Math.random() - 0.5) * 0.9);
+    g.font = `bold ${randInt(24, 30)}px "Comic Sans MS", cursive, sans-serif`;
+    g.fillStyle = `hsl(${randInt(0, 360)}, 60%, 30%)`;
+    g.textBaseline = 'middle';
+    g.fillText(text[i], 0, 0);
+    g.restore();
+  }
+  for (let i = 0; i < 4; i++) {
+    g.strokeStyle = `hsla(${randInt(0, 360)}, 60%, 35%, 0.7)`;
+    g.lineWidth = randInt(1, 2);
+    g.beginPath();
+    g.moveTo(0, Math.random() * h);
+    g.bezierCurveTo(w / 3, Math.random() * h, (2 * w) / 3, Math.random() * h, w, Math.random() * h);
+    g.stroke();
+  }
+}
+
+function inPopup(el) {
+  return Boolean(el && el.closest && el.closest('.popup'));
+}
+
+function chaosSync() {
+  const self = you();
+  const alive = Boolean(state && state.phase === 'playing' && self && self.alive && !self.spectating);
+  if (!alive) for (const id of [...popups.keys()]) closePopup(id);
+}
+
+function overlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+// Drop the window somewhere random on screen, trying not to stack on others.
+function placeRandomly(el) {
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const maxX = Math.max(8, window.innerWidth - w - 8);
+  const maxY = Math.max(8, window.innerHeight - h - 8);
+  const others = [...popups.values()].map((p) => p.el.getBoundingClientRect());
+  let x = 8;
+  let y = 8;
+  for (let tries = 0; tries < 20; tries++) {
+    x = randInt(8, maxX);
+    y = randInt(8, maxY);
+    const box = { left: x - 6, top: y - 6, right: x + w + 6, bottom: y + h + 6 };
+    if (!others.some((o) => overlaps(box, o))) break;
+  }
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+}
+
+function wiggle(el) {
+  el.classList.remove('wrong');
+  void el.offsetWidth;
+  el.classList.add('wrong');
+}
+
+function openPopup(msg) {
+  if (popups.has(msg.id)) return;
+  const el = document.createElement('form');
+  el.className = 'popup';
+  el.autocomplete = 'off';
+  el.innerHTML = `
+    <div class="pop-bar">
+      <span class="pop-dots"><i></i><i></i><i></i></span>
+      <span class="pop-title"></span>
+      <span class="pop-time"></span>
+      <button type="button" class="pop-x" aria-label="Close">×</button>
+    </div>
+    <div class="pop-url"></div>
+    <div class="pop-body">
+      <p class="pop-q"></p>
+      <input maxlength="12" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Answer" />
+    </div>
+    <div class="pop-timer"><div></div></div>`;
+  el.querySelector('.pop-title').textContent = msg.title;
+  el.querySelector('.pop-url').textContent = `🔒 https://${pick(URLS)}`;
+  el.querySelector('.pop-q').textContent = msg.q;
+  const input = el.querySelector('input');
+  input.inputMode = msg.kind === 'math' ? 'numeric' : 'text';
+  if (msg.code) {
+    const code = document.createElement('p');
+    code.className = 'pop-code';
+    code.textContent = msg.code;
+    input.before(code);
+  }
+  if (msg.captcha) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 180;
+    canvas.height = 58;
+    drawCaptcha(canvas, msg.captcha);
+    input.before(canvas);
+  }
+
+  el.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const answer = input.value.trim();
+    if (!answer) return;
+    send({ t: 'popanswer', id: msg.id, answer });
+  });
+  input.addEventListener('paste', (ev) => ev.preventDefault());
+  el.querySelector('.pop-x').addEventListener('click', () => {
+    el.querySelector('.pop-title').textContent = 'Nice try';
+    wiggle(el);
+    input.focus();
+  });
+
+  el.style.visibility = 'hidden';
+  popupsEl.appendChild(el);
+  placeRandomly(el);
+  el.style.visibility = '';
+  popups.set(msg.id, {
+    el,
+    input,
+    dur: msg.dur,
+    deadline: performance.now() + msg.dur,
+    timeEl: el.querySelector('.pop-time'),
+    barEl: el.querySelector('.pop-timer div'),
+  });
+
+  // A curse captcha always grabs focus; random ones don't interrupt you mid-word.
+  if (msg.forced || document.activeElement !== entry || entry.disabled) input.focus();
+  tone(880, 0.09, 'square', 0.05);
+  setTimeout(() => tone(1175, 0.12, 'square', 0.05), 110);
+  if (!chaosLooping) {
+    chaosLooping = true;
+    requestAnimationFrame(chaosFrame);
+  }
+}
+
+function closePopup(id) {
+  const p = popups.get(id);
+  if (!p) return;
+  const hadFocus = p.el.contains(document.activeElement);
+  p.el.remove();
+  popups.delete(id);
+  if (!hadFocus) return;
+  const rest = [...popups.values()];
+  if (rest.length) rest[rest.length - 1].input.focus();
+  else if (!entry.disabled) entry.focus();
+}
+
+function onPopupMessage(msg) {
+  if (msg.t === 'popup') return openPopup(msg);
+  const p = popups.get(msg.id);
+  if (!p) return;
+  if (msg.t === 'popwrong') {
+    wiggle(p.el);
+    p.input.value = '';
+    tone(160, 0.15, 'square', 0.05);
+    return;
+  }
+  if (msg.t === 'popclose') {
+    if (msg.ok) successSound();
+    closePopup(msg.id);
+  }
+}
+
+// Each window's own countdown. The server closes it when time is really up.
+function chaosFrame() {
+  const now = performance.now();
+  for (const p of popups.values()) {
+    const left = p.deadline - now;
+    const portion = Math.max(0, left / p.dur);
+    const low = portion < 0.35;
+    p.timeEl.textContent = `${Math.max(0, left / 1000).toFixed(1)}s`;
+    p.timeEl.classList.toggle('low', low);
+    p.barEl.style.width = `${portion * 100}%`;
+    p.barEl.classList.toggle('low', low);
+  }
+  if (popups.size) requestAnimationFrame(chaosFrame);
+  else chaosLooping = false;
+}
+
 function onState(next) {
   const first = !primed;
   primed = true;
@@ -400,6 +676,8 @@ function onState(next) {
   }
   if (next.boom) lastBoom = next.boom.at;
   if (next.phase !== 'playing') lastTick = null;
+  if (next.phase !== 'ended') hideWin();
+  else if (state && state.phase !== 'ended') showWin(next);
   const turnMoved = state && (next.currentId !== state.currentId || next.passes !== state.passes || next.phase !== state.phase);
   state = next;
   usedSet = new Set(next.used || []);
@@ -412,6 +690,7 @@ function onState(next) {
     hintEl.textContent = '';
   }
   render();
+  chaosSync();
 }
 
 function connect() {
@@ -440,6 +719,7 @@ function connect() {
       return;
     }
     if (msg.t === 'state') return onState(msg);
+    if (msg.t === 'popup' || msg.t === 'popclose' || msg.t === 'popwrong') return onPopupMessage(msg);
     if (msg.t === 'nope') {
       hintEl.textContent = msg.message;
       hintEl.classList.add('warn');
@@ -544,6 +824,14 @@ entry.addEventListener('input', () => {
 });
 
 document.addEventListener('keydown', (ev) => {
+  if (inPopup(ev.target)) return;
+  if (winOpen()) {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      if (!ev.repeat) dismissWin();
+    }
+    return;
+  }
   if (ev.target === entry || ev.target === nameInput) return;
   if (ev.key === 'Enter' && state && (state.phase === 'lobby' || state.phase === 'ended')) {
     const self = you();
@@ -588,6 +876,7 @@ document.addEventListener('keydown', (ev) => {
   if (!state || state.curse !== 'autocorrect') return;
   if (!document.body.classList.contains('my-turn')) return;
   if (entry.disabled || ev.ctrlKey || ev.metaKey) return;
+  if (inPopup(ev.target)) return;                // leave popup answers alone
   if (!/^[a-z]$/i.test(ev.key)) return;          // only letters
   if (Math.random() > 0.3) return;               // 70% of the time: type normally
 
