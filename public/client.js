@@ -581,3 +581,20 @@ if (localStorage.getItem('wb-name')) {
 } else {
   nameInput.focus();
 }
+// ✨ AUTOCORRECT CURSE — randomly "fixes" letters as you type
+const ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
+
+document.addEventListener('keydown', (ev) => {
+  if (!state || state.curse !== 'autocorrect') return;
+  if (!document.body.classList.contains('my-turn')) return;
+  if (entry.disabled || ev.ctrlKey || ev.metaKey) return;
+  if (!/^[a-z]$/i.test(ev.key)) return;          // only letters
+  if (Math.random() > 0.3) return;               // 70% of the time: type normally
+
+  ev.preventDefault();                           // cancel the real letter...
+  const wrong = ALPHABET[(Math.random() * 26) | 0];
+  entry.focus();
+  entry.value += wrong;                          // ...and type a random one
+  entry.dispatchEvent(new Event('input'));       // refresh the preview
+  hintEl.textContent = `✨ autocorrected ${ev.key.toUpperCase()} → ${wrong.toUpperCase()} ✨`;
+}, true);
